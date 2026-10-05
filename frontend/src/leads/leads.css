@@ -1,0 +1,125 @@
+/* ---------------------------------------------------------------------
+   Lead FMS — the page-level pieces that are specific to leads (follow-up
+   cards, sheet tables, bars). Everything else (sidebar, tables, cards,
+   modals, forms, theme tokens) comes from index.css, so this site looks
+   and behaves like the Reminder List app. Everything custom is `ld-`.
+------------------------------------------------------------------------*/
+/* tables here start with real columns, not an S.No */
+.page .table td:first-child, .page .table th:first-child { color: inherit; font-weight: inherit; width: auto; }
+.page .table th:first-child { color: var(--muted); font-weight: 600; }
+/* Team keeps the reminder app's muted S.No column */
+.page .table.ld-sno td:first-child { color: var(--faint); font-weight: 500; width: 1%; }
+.range-pill-active, .range-pill-active:hover { box-shadow: 0 2px 8px rgba(44, 90, 160, 0.35); }
+
+/* ---- top bar (overdue + import) ---- */
+.ld-topbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; margin: -6px 0 10px; }
+.ld-overdue { font-size: 13px; font-weight: 600; text-decoration: none; padding: 6px 13px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+.ld-overdue.has { background: var(--bad-bg); border-color: transparent; color: var(--bad); }
+
+/* ---- buttons ---- */
+.ld-btn {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer;
+  padding: 7px 14px; border-radius: 999px; background: var(--panel); color: var(--ink); border: 1px solid var(--line-strong);
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+.ld-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-light); }
+.ld-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.ld-btn-solid, .ld-btn-solid:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ld-btn-solid:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); transform: translateY(-1px); }
+.ld-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ld-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0; }
+.ld-chip {
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 5px 12px; border-radius: 999px;
+  background: var(--panel-alt); color: var(--ink); border: 1px solid var(--line-strong); transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.ld-chip:hover { border-color: var(--accent); }
+.ld-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---- status pills ---- */
+.ld-pill { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; background: var(--panel-alt); color: var(--muted); }
+.ld-pill-done { background: var(--good-bg); color: var(--good); }
+.ld-pill-over { background: var(--bad-bg); color: var(--bad); }
+.ld-pill-wait { background: var(--warn-bg); color: var(--warn); }
+.ld-pill-skip { background: var(--panel-alt); color: var(--faint); }
+.ld-bad { color: var(--bad); font-weight: 600; }
+.ld-small { font-size: 12.5px; color: var(--muted); }
+
+/* ---- task cards ---- */
+.ld-tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+.ld-task { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow-panel); }
+.ld-task-over { border-left-color: var(--bad); }
+.ld-task-wait { border-left-color: var(--warn); }
+.ld-task-done { border-left-color: var(--good); }
+.ld-task-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ld-task-head b { font-size: 15px; }
+.ld-empty { padding: 22px; text-align: center; color: var(--muted); background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: 14px; }
+
+/* ---- panels / grids ---- */
+.ld-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px; box-shadow: var(--shadow-panel); }
+.ld-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.ld-panel h3 { margin: 0 0 10px; font-size: 15px; }
+.ld-panel-head h3 { margin: 0; }
+.ld-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 0 14px; }
+.table-wrap.ld-flush { margin: 0; max-height: none; border: none; box-shadow: none; background: transparent; }
+.ld-select, .ld-input, .ld-textarea, .filter-row select, .ld-bulk select {
+  font: inherit; font-size: 13.5px; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink);
+}
+.ld-input { width: 100%; max-width: 560px; }
+.ld-input.ld-narrow { width: 96px; }
+.ld-textarea { width: 100%; max-width: 560px; resize: vertical; }
+.ld-select:focus, .ld-input:focus, .ld-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+.ld-label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px; }
+.ld-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.ld-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: 6px 0; }
+.ld-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13.5px; }
+.ld-bulk { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding: 10px 14px; background: var(--accent-light); border-radius: var(--radius); }
+.ld-more { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+
+/* ---- bars & charts ---- */
+.ld-bar { display: grid; grid-template-columns: 130px 1fr 96px; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; }
+.ld-bar-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ld-track { height: 10px; border-radius: 999px; background: var(--panel-alt); border: 1px solid var(--line); overflow: hidden; }
+.ld-track-sm { display: inline-block; width: 90px; height: 8px; vertical-align: middle; }
+.ld-track i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.ld-fill-accent { background: var(--accent); }
+.ld-fill-good { background: var(--good); }
+.ld-trend { display: flex; align-items: flex-end; gap: 10px; min-height: 150px; overflow-x: auto; padding-bottom: 2px; }
+.ld-trend > div { flex: 1 0 34px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; text-align: center; }
+.ld-trend b { font-size: 12px; }
+.ld-trend small { font-size: 11px; color: var(--muted); }
+.ld-mb { display: flex; align-items: flex-end; gap: 3px; }
+.ld-mb i { display: block; width: 14px; border-radius: 4px 4px 0 0; background: var(--accent); }
+.ld-trend > div > .ld-mb:only-of-type i { width: 24px; }
+.ld-legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.ld-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); margin-right: 5px; }
+.ld-dot-good { background: var(--good); }
+
+/* ---- the "sheet" tables: coloured group headers, two sticky header rows ---- */
+.ld-sheet thead tr:nth-child(2) th { top: 36px; }
+.ld-sheet th.g0 { background: var(--accent-light); color: var(--accent-dark); }
+.ld-sheet th.g1 { background: rgba(46, 160, 120, 0.16); }
+.ld-sheet th.g2 { background: rgba(224, 145, 43, 0.18); }
+.ld-sheet th.g3 { background: rgba(109, 79, 192, 0.16); }
+.ld-sheet thead tr:first-child th { text-align: center; }
+.ld-sheet td { font-size: 13px; padding: 8px 12px; }
+
+/* ---- update modal ---- */
+.ld-modal { width: min(560px, 100%); }
+.ld-history { background: var(--panel-alt); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 12.5px; display: grid; gap: 4px; max-height: 140px; overflow: auto; }
+
+@media (max-width: 720px) {
+  .ld-tasks { grid-template-columns: 1fr; }
+  .ld-grid2 { grid-template-columns: 1fr; }
+  .ld-bar { grid-template-columns: 96px 1fr 70px; }
+}
+
+/* wide sheet tables must scroll inside their own box, not stretch the page */
+.content { min-width: 0; }
+.toolbar > .search-input { flex: 1 1 260px; max-width: 460px; }
+.ld-sheet thead tr:first-child th { height: 36px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+
+/* the tips button lives bottom-right here (there is no chat bubble on this site to share the corner) */
+body .shortcuts-wrap { left: auto; right: 18px; }
+body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
+
+.ld-mb i.ld-fill-good { background: var(--good); }
