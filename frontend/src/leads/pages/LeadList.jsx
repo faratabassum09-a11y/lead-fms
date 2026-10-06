@@ -4,7 +4,7 @@ import PageLoader from "../../components/PageLoader.jsx";
 import SearchInput from "../../components/SearchInput.jsx";
 import { api } from "../../api.js";
 import { useLeads } from "../LeadsContext.jsx";
-import { LBL, delay, downloadCsv, fmt, state } from "../leadUtils.js";
+import { LBL, delay, downloadCsv, fmt, fuCount, state } from "../leadUtils.js";
 
 // The sheet view: Lead Qualification + Follow-Up 1/2/3, exactly like the old Google Sheet.
 export default function LeadList() {
@@ -21,6 +21,7 @@ export default function LeadList() {
     [leads, doer, needle, flt, now]
   );
   if (!loaded) return <PageLoader />;
+  const nFu = fuCount(cfg, leads), steps = Array.from({ length: nFu }, (_, i) => i + 1), gc = (n) => "g" + (((n - 1) % 3) + 1);
   const ids = Object.keys(sel).filter((k) => sel[k]);
   const assign = async () => {
     try { await api.ldBulkAssign(ids, to); setSel({}); await load(); toast(`Assigned ${ids.length} lead${ids.length === 1 ? "" : "s"} to ${to}`, "good"); }
@@ -32,9 +33,9 @@ export default function LeadList() {
   };
   return (
     <div className="page">
-      <PageHeader title="Leads" subtitle="Lead Qualification and Follow-Up 1 · 2 · 3 for every lead"
+      <PageHeader title="Leads" subtitle="Lead Qualification and every follow-up step for every lead"
         meta={<div className="ld-actions"><span className="chip"><strong>{rows.length}</strong> leads</span>
-          <button type="button" className="ld-btn" onClick={() => downloadCsv("leads.csv", [["Lead", ...(admin ? ["Phone"] : []), "Caller", "City", "Day1", "Day2", "FU1", "FU2", "FU3"], ...rows.map((l) => [l.name, ...(admin ? [l.phone] : []), l.assignedTo, l.city, l.day1 ? "Y" : "", l.day2 ? "Y" : "", ...l.fus.map((f) => f.status || "")])])}>⬇ CSV</button>
+          <button type="button" className="ld-btn" onClick={() => downloadCsv("leads.csv", [["Lead", ...(admin ? ["Phone"] : []), "Caller", "City", "Day1", "Day2", ...steps.map((n) => "FU" + n)], ...rows.map((l) => [l.name, ...(admin ? [l.phone] : []), l.assignedTo, l.city, l.day1 ? "Y" : "", l.day2 ? "Y" : "", ...steps.map((n) => l.fus[n - 1]?.status || "")])])}>⬇ CSV</button>
           {admin && <button type="button" className="ld-btn ld-btn-solid" onClick={() => setAdd({})}>＋ Add lead</button>}</div>} />
       <div className="toolbar">
         <SearchInput value={q} onChange={setQ} placeholder={admin ? "Search name, phone, city…" : "Search name or city…"} />
@@ -52,11 +53,11 @@ export default function LeadList() {
       <div className="table-wrap">
         <table className="table ld-sheet">
           <thead>
-            <tr><th colSpan={admin ? 13 : 10} className="g0">Lead Qualification</th>{[1, 2, 3].map((n) => <th key={n} colSpan={5} className={"g" + n}>Follow-Up {n} · planned {cfg?.plan?.[n - 1]?.time}</th>)}</tr>
+            <tr><th colSpan={admin ? 13 : 10} className="g0">Lead Qualification</th>{steps.map((n) => <th key={n} colSpan={5} className={gc(n)}>Follow-Up {n}{cfg?.plan?.[n - 1] ? ` · planned ${cfg.plan[n - 1].time}` : ""}</th>)}</tr>
             <tr>
               {admin && <th><input type="checkbox" aria-label="Select all shown" onChange={(e) => setSel(e.target.checked ? Object.fromEntries(rows.slice(0, lim).map((l) => [l._id, 1])) : {})} /></th>}
               {["Timestamp", "Lead Name", ...(admin ? ["Phone", "Email"] : []), "Assigned To", "Current Status", "Level", "Profession", "City", "UTW Date", "Webinar Reg.", "Day 1/2"].map((h) => <th key={h}>{h}</th>)}
-              {[1, 2, 3].flatMap((n) => ["Planned", "Actual", "Status", "Action", "Delay"].map((h) => <th key={n + h} className={"g" + n}>{h}</th>))}
+              {steps.flatMap((n) => ["Planned", "Actual", "Status", "Action", "Delay"].map((h) => <th key={n + h} className={gc(n)}>{h}</th>))}
             </tr>
           </thead>
           <tbody>
@@ -69,7 +70,9 @@ export default function LeadList() {
                   <td>{l.assignedTo || <span className="ld-pill ld-pill-over">Unassigned</span>}</td>
                   <td>{cur}</td><td>{l.level}</td><td>{l.profession}</td><td>{l.city}</td><td>{l.utwDate}</td><td>{l.webReg}</td>
                   <td>{l.day1 ? "✅" : "▫️"}{l.day2 ? "✅" : "▫️"}</td>
-                  {l.fus.map((f, i) => {
+                  {steps.map((n) => {
+                    const i = n - 1, f = l.fus[i];
+                    if (!f) return <React.Fragment key={i}><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></React.Fragment>;
                     const s = state(f, now), d = delay(f, now);
                     return (
                       <React.Fragment key={i}>
@@ -95,7 +98,7 @@ export default function LeadList() {
       {add && (
         <div className="modal-scrim" onClick={() => setAdd(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><div><h3>Add lead</h3><p className="modal-sub">The 3 follow-ups are planned automatically.</p></div><button type="button" className="modal-x" onClick={() => setAdd(null)}>×</button></div>
+            <div className="modal-head"><div><h3>Add lead</h3><p className="modal-sub">All follow-ups in your schedule are planned automatically.</p></div><button type="button" className="modal-x" onClick={() => setAdd(null)}>×</button></div>
             {["name", "phone", "email", "city", "profession", "level"].map((k) => (
               <label className="modal-field" key={k}>{k[0].toUpperCase() + k.slice(1)}{["name", "phone"].includes(k) ? " *" : ""}
                 <input value={add[k] || ""} onChange={(e) => setAdd({ ...add, [k]: e.target.value })} /></label>

@@ -52,6 +52,21 @@
 .ld-task-done { border-left-color: var(--good); }
 .ld-task-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ld-task-head b { font-size: 15px; }
+/* FU1 · FU2 · FU3 columns */
+.ld-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; align-items: start; margin-top: 14px; }
+.ld-cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.ld-col { background: var(--panel-alt, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; min-width: 0; }
+.ld-col-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 4px 10px; border-bottom: 2px solid var(--line-strong); margin-bottom: 10px; }
+.ld-col-head b { font-size: 15px; }
+.ld-col-sub { font-size: 12px; color: var(--muted); flex: 1; }
+.ld-col-count { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-strong); }
+.ld-col-fu1 .ld-col-head { border-bottom-color: var(--accent, #6aa0f0); }
+.ld-col-fu2 .ld-col-head { border-bottom-color: var(--warn); }
+.ld-col-fu3 .ld-col-head { border-bottom-color: var(--bad); }
+.ld-col-fu4 .ld-col-head { border-bottom-color: var(--good); }
+.ld-col-body { display: flex; flex-direction: column; gap: 10px; }
+.ld-col .ld-task { padding: 12px 13px; }
+.ld-empty-sm { padding: 14px; font-size: 13px; }
 .ld-empty { padding: 22px; text-align: center; color: var(--muted); background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: 14px; }
 
 /* ---- panels / grids ---- */
@@ -137,7 +152,7 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-sheet th.g3 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(109, 79, 192, 0.16), rgba(109, 79, 192, 0.16)); }
 
 /* ---- caller-friendly task cards: calm colours, no alarm, big tap targets ---- */
-.ld-actions-3 .ld-btn { padding: 9px 16px; font-size: 13.5px; }
+
 .ld-ico { flex-shrink: 0; }
 .ld-btn-wa, .ld-btn-wa:hover:not(:disabled) { background: #1fa855; border-color: #1fa855; color: #fff; }
 .ld-btn-wa:hover:not(:disabled) { background: #178a45; border-color: #178a45; transform: translateY(-1px); }
@@ -148,8 +163,8 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-soft { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px; background: var(--accent-light); color: var(--accent-dark); white-space: nowrap; }
 .ld-note { font-size: 13px; color: var(--muted); font-style: italic; background: var(--panel-alt); border-radius: var(--radius-sm); padding: 8px 10px; }
 .ld-overdue-calm, .ld-overdue-calm.has { background: var(--accent-light); color: var(--accent-dark); border-color: transparent; }
-.ld-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-@media (max-width: 560px) { .ld-trio { grid-template-columns: 1fr; } .ld-actions-3 .ld-btn { flex: 1 1 auto; justify-content: center; } }
+.ld-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .ld-trio { grid-template-columns: 1fr; } }
 
 /* ---- Settings: sheet connection ---- */
 .ld-steps { display: grid; gap: 10px; margin: 6px 0 16px; font-size: 13.5px; }
@@ -157,3 +172,61 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-callout { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13.5px; margin-bottom: 12px; }
 .ld-callout.good { background: var(--good-bg); color: var(--good); }
 .ld-callout.bad { background: var(--bad-bg); color: var(--bad); }
+
+/* ---- compact task cards: number beside the name, small buttons ---- */
+.ld-task-sm { padding: 9px 11px; gap: 6px; }
+.ld-task-sm .ld-task-head { gap: 6px 8px; }
+.ld-nameline { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.ld-nameline b { font-size: 14px; }
+.ld-phone { font-size: 12.5px; color: var(--muted); text-decoration: none; font-variant-numeric: tabular-nums; }
+.ld-phone:hover { color: var(--accent); }
+.ld-task-sm .ld-pill { font-size: 10.5px; padding: 2px 8px; }
+.ld-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ld-col .ld-task-calm { padding: 11px 13px; gap: 8px; }
+.ld-col .ld-task-calm .ld-avatar { width: 30px; height: 30px; font-size: 13px; }
+.ld-col .ld-task-calm .ld-who b { font-size: 14px; }
+
+/* ---- card buttons: Call · WhatsApp · Update status in ONE small row ---- */
+.ld-task { min-width: 0; }
+.ld-actions-3 { display: flex; flex-wrap: nowrap; gap: 5px; }
+.ld-actions-3 .ld-btn { flex: 1 1 auto; min-width: 0; justify-content: center; gap: 4px; padding: 4px 8px; font-size: 11.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ld-actions-3 .ld-ico, .ld-actions-3 .ld-btn svg { width: 12px; height: 12px; }
+
+/* ---- compact cards, columns sit side by side (as many as fit) ---- */
+.ld-cols { grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 10px; }
+.ld-cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); }
+.ld-col { padding: 8px; }
+.ld-col-head { padding: 0 3px 7px; margin-bottom: 8px; }
+.ld-col-head b { font-size: 14px; }
+.ld-col-body { gap: 7px; }
+.ld-col .ld-task, .ld-col .ld-task-sm, .ld-col .ld-task-calm { padding: 7px 9px; gap: 5px; border-left-width: 3px; border-radius: 10px; box-shadow: none; }
+.ld-task-sm .ld-task-head { gap: 3px 6px; }
+.ld-nameline { gap: 6px; }
+.ld-nameline b, .ld-col .ld-task-calm .ld-who b { font-size: 13px; }
+.ld-phone { font-size: 11.5px; }
+.ld-task-sm .ld-pill { font-size: 10px; padding: 1px 7px; }
+.ld-col .ld-small, .ld-task-sm .ld-small { font-size: 11.5px; }
+.ld-col .ld-task-calm .ld-avatar { width: 26px; height: 26px; font-size: 12px; }
+.ld-col .ld-task-calm .ld-soft { font-size: 10.5px; padding: 2px 8px; }
+.ld-col .ld-task-calm .ld-who { gap: 8px; }
+.ld-tasks { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 8px; }
+
+/* ---- Update status dialog: nothing may be wider than the dialog ---- */
+.ld-modal { overflow-x: hidden; box-sizing: border-box; }
+.ld-modal .modal-field { min-width: 0; }
+.ld-modal .modal-field input:not([type="file"]), .ld-modal .modal-field textarea, .ld-modal .modal-field select {
+  width: 100%; min-width: 0; box-sizing: border-box; background: var(--panel-alt); color: var(--ink);
+}
+.ld-modal .modal-field input::placeholder, .ld-modal .modal-field textarea::placeholder { color: var(--faint, var(--muted)); }
+.ld-modal .ld-actions .ld-btn { min-width: 0; }
+.ld-modal .modal-actions .ld-btn { padding: 8px 18px; }
+
+/* ---- Settings: follow-up rows ---- */
+.ld-fu-label { min-width: 44px; }
+.ld-subhead { font-weight: 700; font-size: 14px; margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* ---- Settings: add / remove follow-up buttons ---- */
+.ld-btn-add, .ld-btn-add:hover:not(:disabled) { background: var(--good); border-color: var(--good); color: #fff; }
+.ld-btn-add:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.ld-btn-remove, .ld-btn-remove:hover:not(:disabled) { background: var(--bad-bg); border-color: var(--bad); color: var(--bad); }
+.ld-btn-remove:hover:not(:disabled) { background: var(--bad); color: #fff; }

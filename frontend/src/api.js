@@ -99,14 +99,13 @@ export const api = {
   ldSheetKey: () => request("/sheet-key", { method: "POST" }),
   ldSheetTest: (data) => request("/sheet-test", { method: "POST", body: JSON.stringify(data) }),
   ldSheetScript: () => request("/sheet-script"),
-  ldMarkAttendance: (day, phones) => request("/attendance", { method: "POST", body: JSON.stringify({ day, phones }) }),
+  ldMarkAttendance: (day, entries) => request("/attendance", { method: "POST", body: JSON.stringify({ day, entries }) }), // phone numbers and/or emails
+  ldImportLog: () => request("/import-log"),
   ldActivity: () => request("/activity"),
   ldToday: () => request("/today"),
   ldDaily: (days = 14) => request(`/daily?days=${days}`),
   ldSnapshot: () => request("/snapshot", { method: "POST" }),
   ldReports: (months) => request(`/reports?months=${months}`),
-  ldLoadDemo: () => request("/demo", { method: "POST" }),
-  ldClearDemo: () => request("/demo", { method: "DELETE" }),
   ldCallers: () => request("/callers"),
 
   // ---- team (admin) ----

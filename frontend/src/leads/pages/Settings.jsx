@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import PageHeader from "../../components/PageHeader.jsx";
 import PageLoader from "../../components/PageLoader.jsx";
 import { api } from "../../api.js";
@@ -6,6 +6,7 @@ import { useLeads } from "../LeadsContext.jsx";
 import { fmt } from "../leadUtils.js";
 import { Panel } from "../ui.jsx";
 
+const MAX_FU = 10;
 const csv = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const Check = ({ checked, onChange, children }) => <label className="ld-check"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {children}</label>;
 const Field = ({ label, hint, children }) => <label className="ld-field"><span className="ld-label">{label}</span>{children}{hint && <span className="ld-small">{hint}</span>}</label>;
@@ -14,17 +15,31 @@ const Field = ({ label, hint, children }) => <label className="ld-field"><span c
 export default function Settings() {
   const { cfg, load, sync, toast } = useLeads();
   if (!cfg) return <PageLoader />;
-  return <Form key={JSON.stringify(cfg.plan) + cfg.intakeSheet + cfg.sheetUrl + cfg.sheetToken} cfg={cfg} load={load} sync={sync} toast={toast} />;
+  return <Form key={JSON.stringify(cfg.plan) + JSON.stringify(cfg.attPlan) + cfg.intakeSheet + cfg.sheetUrl + cfg.sheetToken} cfg={cfg} load={load} sync={sync} toast={toast} />;
 }
 
 function Form({ cfg, load, sync, toast }) {
   const [c, setC] = useState(cfg), [st, setSt] = useState(cfg.statuses.join(", ")), [rs, setRs] = useState(cfg.retryStatuses.join(", ")), [cs, setCs] = useState(cfg.closeStatuses.join(", "));
-  const [saving, setSaving] = useState(false), [demo, setDemo] = useState(false);
-  const plan = (i, k, v) => setC({ ...c, plan: c.plan.map((p, j) => (j === i ? { ...p, [k]: v } : p)) });
-  const full = () => ({ ...c, statuses: csv(st), retryStatuses: csv(rs), closeStatuses: csv(cs) });
+  const [saving, setSaving] = useState(false);
+  const [log, setLog] = useState(null);
+  const loadLog = useCallback(() => api.ldImportLog().then(setLog).catch(() => setLog([])), []);
+  useEffect(() => { loadLog(); }, [loadLog]);
+  // every "import" click ends with the log refreshed — also when the import failed (that is logged too)
+  const importNow = async () => { try { await sync(); } finally { await loadLog(); } };
+  // lead follow-ups (FU1…) and attendee follow-ups (Day 1 / Day 2): up to 10 each
+  const [toAll, setToAll] = useState(true);
+  const edit = (key, i, k, v) => setC({ ...c, [key]: c[key].map((p, j) => (j === i ? { ...p, [k]: v } : p)) });
+  const addStep = (key) => setC({ ...c, [key]: [...c[key], { days: (+c[key][c[key].length - 1]?.days || 0) + 1, time: c[key][c[key].length - 1]?.time || "11:00" }] });
+  const dropStep = (key) => setC({ ...c, [key]: c[key].slice(0, -1) });
+  const grew = c.plan.length > cfg.plan.length || c.attPlan.length > cfg.attPlan.length;
+  const full = () => ({ ...c, statuses: csv(st), retryStatuses: csv(rs), closeStatuses: csv(cs), applyToExisting: toAll });
   const save = async (after) => {
     setSaving(true);
-    try { await api.ldSaveConfig(full()); await load(); toast("Settings saved", "good"); if (after) await after(); }
+    try {
+      const r = await api.ldSaveConfig(full()); await load();
+      toast(r.addedToLeads ? `Settings saved — new follow-up added to ${r.addedToLeads} existing leads` : "Settings saved", "good");
+      if (after) await after();
+    }
     catch (e) { toast(e.message, "bad"); }
     setSaving(false);
   };
@@ -35,7 +50,6 @@ function Form({ cfg, load, sync, toast }) {
     catch (e) { toast(e.message.includes("Generate") ? e.message : "Couldn't copy — " + e.message, "bad"); }
   };
   const runTest = async () => { setTest(null); try { setTest(await api.ldSheetTest({ sheetUrl: c.sheetUrl, sheetToken: c.sheetToken, intakeSheet: c.intakeSheet })); } catch (e) { setTest({ ok: false, error: e.message }); } };
-  const demoRun = async (fn, msg) => { setDemo(true); try { await fn(); await load(); toast(msg, "good"); } catch (e) { toast(e.message, "bad"); } setDemo(false); };
   return (
     <div className="page">
       <PageHeader title="Settings" subtitle="The intake sheet, the follow-up schedule and the automations" meta={<button type="button" className="ld-btn ld-btn-solid" disabled={saving} onClick={() => save()}>{saving ? "Saving…" : "Save settings"}</button>} />
@@ -58,11 +72,11 @@ function Form({ cfg, load, sync, toast }) {
         {test && <div className={"ld-callout " + (test.ok ? "good" : "bad")}>{test.ok
           ? <>✅ Connected — {test.leadsInSheet} lead rows found.{test.missing.length > 0 && <> Missing columns: <b>{test.missing.join(", ")}</b>.</>}</>
           : <>⚠ {test.error}</>}</div>}
-        {cfg.lastSync && <p className="ld-small">Last import: {fmt(cfg.lastSync.at)} — {cfg.lastSync.ok ? `${cfg.lastSync.added} new, ${cfg.lastSync.updated} updated` : <span className="ld-bad">{cfg.lastSync.error}</span>}. The site checks the sheet every 5 minutes; new rows never duplicate (phone = unique) and blank cells never erase data.</p>}
+        {cfg.lastSync && <p className="ld-small">Last import: {fmt(cfg.lastSync.at)} — {cfg.lastSync.ok ? `${cfg.lastSync.added} new, ${cfg.lastSync.updated} updated` : <span className="ld-bad">{cfg.lastSync.error}</span>}. The site checks the sheet every 5 minutes; new rows never duplicate (a lead is matched by phone number, or by email if the phone is new) and blank cells never erase data.</p>}
         <Check checked={c.autoAssign} onChange={(v) => setC({ ...c, autoAssign: v })}>Auto-assign leads with a blank “Assigned To” equally among callers</Check>
         <div className="ld-actions" style={{ marginTop: 12 }}>
           <button type="button" className="ld-btn" disabled={saving} onClick={runTest}>Test connection</button>
-          <button type="button" className="ld-btn ld-btn-solid" disabled={saving} onClick={() => save(sync)}>Save &amp; import now</button>
+          <button type="button" className="ld-btn ld-btn-solid" disabled={saving} onClick={() => save(importNow)}>Save &amp; import now</button>
         </div>
         <details style={{ marginTop: 14 }}>
           <summary className="ld-small" style={{ cursor: "pointer" }}>Older option: read-only link (no write-back)</summary>
@@ -73,15 +87,12 @@ function Form({ cfg, load, sync, toast }) {
       </Panel>
 
       <Panel title="Follow-up schedule">
-        <p className="ld-small" style={{ marginTop: 0 }}>Days after the lead arrives, and the time of day (India time). Applies to newly imported leads.</p>
-        {c.plan.map((p, i) => (
-          <div className="ld-row" key={i}>
-            <b>FU{i + 1}</b>
-            <input className="ld-input ld-narrow" type="number" min="0" value={p.days} onChange={(e) => plan(i, "days", +e.target.value)} aria-label={`FU${i + 1} days`} /> days at
-            <input className="ld-input ld-narrow" type="time" value={p.time} onChange={(e) => plan(i, "time", e.target.value)} aria-label={`FU${i + 1} time`} />
-          </div>
-        ))}
-        <div className="ld-row">Working hours
+        <p className="ld-small" style={{ marginTop: 0 }}>Days after the lead arrives, and the time of day (India time). Add up to {MAX_FU} follow-ups — each one shows up on Today / Delayed Follow-ups as soon as it is due.</p>
+        <PlanRows rows={c.plan} label="FU" onEdit={(i, k, v) => edit("plan", i, k, v)} onAdd={() => addStep("plan")} onDrop={() => dropStep("plan")} />
+        <div className="ld-subhead">Attendee follow-ups <span className="ld-small">(days after someone is marked present on Day 1 / Day 2)</span></div>
+        <PlanRows rows={c.attPlan} label="AFU" onEdit={(i, k, v) => edit("attPlan", i, k, v)} onAdd={() => addStep("attPlan")} onDrop={() => dropStep("attPlan")} />
+        {grew && <Check checked={toAll} onChange={setToAll}><span>Also add the new follow-up to <b>all existing leads</b> (steps already in the past are scheduled for the next working slot; auto-closed leads stay closed)</span></Check>}
+        <div className="ld-row" style={{ marginTop: 10 }}>Working hours
           <input className="ld-input ld-narrow" type="time" value={c.workStart} onChange={(e) => setC({ ...c, workStart: e.target.value })} aria-label="Work start" /> to
           <input className="ld-input ld-narrow" type="time" value={c.workEnd} onChange={(e) => setC({ ...c, workEnd: e.target.value })} aria-label="Work end" /></div>
         <Check checked={c.skipSunday} onChange={(v) => setC({ ...c, skipSunday: v })}>Skip Sundays</Check>
@@ -99,13 +110,49 @@ function Form({ cfg, load, sync, toast }) {
         <Field label="WhatsApp message template" hint="Use {name} and {caller}."><input className="ld-input" value={c.waTemplate} onChange={(e) => setC({ ...c, waTemplate: e.target.value })} /></Field>
       </Panel>
 
-      <Panel title="🧪 Demo data">
-        <p className="ld-small" style={{ marginTop: 0 }}>Adds ~200 made-up leads (with ~10 months of history) so you can try Reports and the Board. They are spread over your existing callers; no logins are created. Clearing removes only demo leads.</p>
-        <div className="ld-actions">
-          <button type="button" className="ld-btn" disabled={demo} onClick={() => demoRun(api.ldLoadDemo, "Demo data loaded")}>Load demo</button>
-          <button type="button" className="ld-btn" disabled={demo} onClick={() => demoRun(api.ldClearDemo, "Demo data cleared")}>Clear demo</button>
+      <Panel title="📜 Import log">
+        <p className="ld-small" style={{ marginTop: 0 }}>Every time someone imports from the sheet — when, who, and how many leads. The automatic 5-minute check is listed only when it brought in or changed leads.</p>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>When</th><th>Who</th><th>Type</th><th>New leads</th><th>Updated</th><th>Rows in sheet</th><th>Result</th></tr></thead>
+            <tbody>
+              {(log || []).map((r) => (
+                <tr key={r._id}>
+                  <td>{new Date(r.at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</td>
+                  <td><b>{r.by || "—"}</b>{r.byEmail && <div className="ld-small">{r.byEmail}</div>}</td>
+                  <td>{r.trigger === "manual" ? "Manual" : "Automatic"}</td>
+                  <td><b>{r.added ?? 0}</b></td>
+                  <td>{r.updated ?? 0}{r.byEmailMatched > 0 && <div className="ld-small">{r.byEmailMatched} matched by email</div>}</td>
+                  <td>{r.rows ?? 0}</td>
+                  <td>{r.ok ? <span className="ld-pill ld-pill-done">Done</span> : <span className="ld-bad" title={r.error}>Failed — {r.error}</span>}</td>
+                </tr>
+              ))}
+              {log && !log.length && <tr><td colSpan={7} className="empty-state">No imports yet — press “Save &amp; import now”.</td></tr>}
+              {!log && <tr><td colSpan={7} className="empty-state">Loading…</td></tr>}
+            </tbody>
+          </table>
         </div>
       </Panel>
     </div>
+  );
+}
+
+// one editable list of follow-up steps with "+ Add follow-up" (max 10) and "Remove last"
+function PlanRows({ rows, label, onEdit, onAdd, onDrop }) {
+  return (
+    <>
+      {rows.map((p, i) => (
+        <div className="ld-row" key={i}>
+          <b className="ld-fu-label">{label}{i + 1}</b>
+          <input className="ld-input ld-narrow" type="number" min="0" max="365" value={p.days} onChange={(e) => onEdit(i, "days", e.target.value === "" ? "" : +e.target.value)} aria-label={`${label}${i + 1} days`} /> days at
+          <input className="ld-input ld-narrow" type="time" value={p.time} onChange={(e) => onEdit(i, "time", e.target.value)} aria-label={`${label}${i + 1} time`} />
+        </div>
+      ))}
+      <div className="ld-actions" style={{ margin: "4px 0 12px" }}>
+        <button type="button" className="ld-btn ld-btn-add" disabled={rows.length >= MAX_FU} onClick={onAdd}>＋ Add follow-up</button>
+        {rows.length > 1 && <button type="button" className="ld-btn ld-btn-remove" onClick={onDrop}>Remove last</button>}
+        <span className="ld-small">{rows.length} of {MAX_FU}</span>
+      </div>
+    </>
   );
 }

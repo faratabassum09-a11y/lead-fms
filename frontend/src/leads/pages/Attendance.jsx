@@ -13,15 +13,17 @@ export default function Attendance() {
   const [mode, setMode] = useState("d1"), [q, setQ] = useState(""), [paste, setPaste] = useState(""), [lim, setLim] = useState(200);
   if (!loaded) return <PageLoader />;
   const d = mode === "d2" ? 2 : 1, set = "d" + d + "Fus", needle = q.trim().toLowerCase();
-  const hit = (l) => !needle || (l.name + (admin ? l.phone : "")).toLowerCase().includes(needle);
+  const hit = (l) => !needle || (l.name + (admin ? l.phone + " " + (l.email || "") : "")).toLowerCase().includes(needle);
   const rows = leads.filter((l) => (mode === "mark" || l["day" + d]) && hit(l) && (!who || mode === "mark" || stageWho(l, set) === who.toLowerCase()));
   const caller = (l) => l["d" + d + "Assigned"] || l.assignedTo;
   const mark = async () => {
     try {
-      const phones = paste.split(/[\s,;]+/).filter((x) => x.replace(/\D/g, "").length >= 10);
-      const r = await api.ldMarkAttendance(d, phones);
+      // each pasted item is either a phone number (10+ digits) or an email address
+      const entries = paste.split(/[\s,;]+/).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) || x.replace(/\D/g, "").length >= 10);
+      if (!entries.length) return toast("Paste at least one phone number or email", "bad");
+      const r = await api.ldMarkAttendance(d, entries);
       setPaste(""); await load();
-      toast(`Marked ${r.marked} as Day ${d} attendees${r.missing.length ? " · not found: " + r.missing.length : ""}`, r.missing.length ? "default" : "good");
+      toast(`Marked ${r.marked} as Day ${d} attendees${r.missing.length ? " · not found: " + r.missing.slice(0, 3).join(", ") + (r.missing.length > 3 ? ` +${r.missing.length - 3} more` : "") : ""}`, r.missing.length ? "default" : "good");
     } catch (e) { toast(e.message, "bad"); }
   };
   const tick = async (l, body) => { try { await patchLead(l, body); } catch (e) { toast(e.message, "bad"); } };
@@ -35,26 +37,26 @@ export default function Attendance() {
             <button key={k} type="button" role="tab" aria-selected={mode === k} className={"range-pill" + (mode === k ? " range-pill-active" : "")} onClick={() => setMode(k)}>{v}</button>
           ))}
         </div>
-        <SearchInput value={q} onChange={setQ} placeholder={admin ? "Search name or phone…" : "Search name…"} />
+        <SearchInput value={q} onChange={setQ} placeholder={admin ? "Search name, phone or email…" : "Search name…"} />
       </div>
       {mode !== "mark" && admin && (
         <div className="ld-panel" style={{ marginTop: 14 }}>
-          <label className="ld-label" htmlFor="ld-paste">Paste phone numbers of Day {d} attendees</label>
-          <textarea id="ld-paste" className="ld-textarea" rows={2} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="9876543210, 9123456780 …" />
-          <p className="ld-small">Their 2 follow-up calls are created automatically and stay with the same caller as the lead — no separate “sync callers” step.</p>
+          <label className="ld-label" htmlFor="ld-paste">Paste phone numbers or emails of Day {d} attendees</label>
+          <textarea id="ld-paste" className="ld-textarea" rows={2} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder="9876543210, name@gmail.com, 9123456780 …" />
+          <p className="ld-small">Phone numbers and email addresses can be mixed — each person is matched by whichever you paste. Their 2 follow-up calls are created automatically and stay with the same caller as the lead — no separate “sync callers” step.</p>
           <button type="button" className="ld-btn ld-btn-solid" disabled={!paste.trim()} onClick={mark}>Mark as Day {d} attendees</button>
         </div>
       )}
       {mode === "mark" ? (
         <div className="table-wrap">
-          <table className="table"><thead><tr><th>Lead</th>{admin && <th>Phone</th>}<th>Caller</th><th>Day 1</th><th>Day 2</th></tr></thead>
+          <table className="table"><thead><tr><th>Lead</th>{admin && <th>Phone</th>}{admin && <th>Email</th>}<th>Caller</th><th>Day 1</th><th>Day 2</th></tr></thead>
             <tbody>
               {rows.slice(0, lim).map((l) => (
-                <tr key={l._id}><td><b>{l.name}</b></td>{admin && <td>{l.phone}</td>}<td>{l.assignedTo}</td>
+                <tr key={l._id}><td><b>{l.name}</b></td>{admin && <td>{l.phone}</td>}{admin && <td>{l.email}</td>}<td>{l.assignedTo}</td>
                   <td><input type="checkbox" checked={!!l.day1} onChange={(e) => tick(l, { day1: e.target.checked })} aria-label={"Day 1 " + l.name} /></td>
                   <td><input type="checkbox" checked={!!l.day2} onChange={(e) => tick(l, { day2: e.target.checked })} aria-label={"Day 2 " + l.name} /></td></tr>
               ))}
-              {!rows.length && <tr><td colSpan={5} className="empty-state">No leads match.</td></tr>}
+              {!rows.length && <tr><td colSpan={admin ? 6 : 4} className="empty-state">No leads match.</td></tr>}
             </tbody></table>
         </div>
       ) : (

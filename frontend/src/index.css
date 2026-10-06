@@ -2646,3 +2646,7 @@ button:not(.link-btn):not(.collapse-btn):not(.modal-x):not(.btn-ghost):not(.btn-
 }
 .ticket-date-filter { margin: 8px 0 6px; display: flex; flex-direction: column; gap: 8px; }
 .ticket-date-filter .filter-row { gap: 10px; }
+
+/* sidebar: a long label (e.g. "Delayed Follow-ups") truncates instead of pushing the count badge out of view */
+.nav-link .nav-label { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.nav-link .nav-badge { flex: 0 0 auto; margin-left: auto; }

@@ -38,13 +38,22 @@ export const waText = (l, cfg) => (cfg?.waTemplate || "").replace("{name}", l.na
 
 export const pc = (a, b) => (b ? Math.round((a / b) * 100) + "%" : "—");
 export const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
-// a task whose lead came in today (Timestamp = today) -> "Today's Tasks"; everything else -> "Follow-ups"
-export const isNewToday = (t) => {
-  if (!t.l.ts) return false;
+// "Today Follow-ups": planned for today (any follow-up step). Planned before today -> "Delayed Follow-ups".
+export const isDueToday = (t) => {
   const a = new Date(); a.setHours(0, 0, 0, 0);
-  const ts = new Date(t.l.ts);
-  return ts >= a && ts <= endOfToday();
+  return new Date(t.f.planned) >= a;
 };
+
+// Follow-up steps are configured in Settings (up to 10). These helpers keep every page in step with that plan.
+export const MAX_FU = 10;
+const ORD = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
+export const stepName = (i) => (ORD[i] || `Call ${i + 1}`) + " call";
+// how many FU columns to show: what Settings plans, or more if some lead already has more steps
+export const fuCount = (cfg, leads = [], set = "fus", plan = set === "fus" ? cfg?.plan : cfg?.attPlan) =>
+  Math.min(MAX_FU, Math.max(plan?.length || 0, ...leads.map((l) => (l[set] || []).length)));
+// FU1 / FU2 / ... columns for the lead-qualification calls; Day 1 / Day 2 attendee calls get their own block
+export const fuCols = (cfg, leads) => Array.from({ length: fuCount(cfg, leads) }, (_, i) => ["fus", i, "FU" + (i + 1), stepName(i)]);
+export const ATT_COLS = [["d1Fus", "Day 1 attendees"], ["d2Fus", "Day 2 attendees"]];
 
 export function downloadCsv(filename, rows) {
   const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");

@@ -97,7 +97,7 @@ export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
           </div>
         )}
         <div className="modal-actions">
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="ld-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="ld-btn ld-btn-solid" disabled={!status || saving} onClick={submit}>{saving ? "Saving…" : "Save update"}</button>
         </div>
       </div>
