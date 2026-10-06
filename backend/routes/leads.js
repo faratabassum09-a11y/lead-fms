@@ -5,6 +5,8 @@ import { Lead, LeadActivity, LeadSnapshot } from "../models/Lead.js";
 import { hashPassword } from "../utils/auth.js";
 import { clearAuthCache } from "../middleware/auth.js";
 import * as S from "../utils/leadService.js";
+import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 
 const router = express.Router();
 // Mounted in server.js behind requireAuth. Two levels: an ADMIN runs everything; a CALLER only
@@ -25,11 +27,14 @@ const loadLead = async (id) => {
 // ---------- settings ----------
 router.get("/config", wrap(async (req, res) => {
   const c = await S.getCfg();
-  res.json(req.lu.leadAdmin ? c : { statuses: c.statuses, plan: c.plan, waTemplate: c.waTemplate });
+  res.json(req.lu.leadAdmin ? { ...c, lastSync: await S.lastSync() } : { statuses: c.statuses, plan: c.plan, waTemplate: c.waTemplate });
 }));
 router.put("/config", adminOnly, wrap(async (req, res) => {
   const b = req.body || {};
+  delete b.lastSync;
   const next = { ...(await S.getCfg()), ...b };
+  next.sheetUrl = String(next.sheetUrl || "").trim();
+  if (next.sheetUrl && !/^https:\/\/script\.google(usercontent)?\.com\//.test(next.sheetUrl)) throw fail("The Google Script link should start with https://script.google.com/…");
   if (!Array.isArray(next.statuses) || !next.statuses.length) throw fail("Add at least one call status");
   await S.setCfg(next);
   res.json(await S.getCfg());
@@ -39,7 +44,24 @@ router.put("/config", adminOnly, wrap(async (req, res) => {
 router.get("/stats", wrap(async (req, res) => res.json(await S.stats(req.lu))));
 
 // ---------- intake sheet ----------
-router.post("/sync", adminOnly, wrap(async (_req, res) => res.json(await S.syncIntake())));
+router.post("/sync", adminOnly, wrap(async (_req, res) => { const r = await S.syncIntake(); S.pushSoon(); res.json(r); }));
+// the Google Apps Script to paste into the sheet (Extensions -> Apps Script), with this site's secret key filled in
+router.get("/sheet-script", adminOnly, wrap(async (_req, res) => {
+  const c = await S.getCfg();
+  if (!c.sheetToken) throw fail("Generate the secret key first, save settings, then copy the script");
+  const code = (await readFile(new URL("../sheet/Code.gs", import.meta.url), "utf8")).replace("__SECRET_KEY__", c.sheetToken);
+  res.json({ code });
+}));
+router.post("/sheet-key", adminOnly, wrap(async (_req, res) => res.json({ token: randomBytes(18).toString("hex") })));
+// "Test connection": read the sheet and say what was found, without importing anything
+router.post("/sheet-test", adminOnly, wrap(async (req, res) => {
+  const cfg = { ...(await S.getCfg()), ...(req.body || {}) };
+  const rows = await S.readSheetRows(cfg), hi = rows.findIndex((r) => r.some((c) => /phone/i.test(String(c))));
+  if (hi < 0) throw fail("Connected, but no header row with “Lead Phone” was found in the first tab");
+  const H = rows[hi].map((h) => String(h).trim()), need = ["Timestamp", "Lead Name", "Lead Email", "Lead Phone", "UTW Date", "Assigned To"];
+  const missing = need.filter((n) => !H.some((h) => h.toLowerCase().includes(n.toLowerCase().replace("lead ", ""))));
+  res.json({ ok: true, leadsInSheet: rows.slice(hi + 1).filter((r) => String(r.find((_, i) => /phone/i.test(H[i] || "")) ?? "").trim()).length, headers: H.filter(Boolean), missing });
+}));
 
 // ---------- leads ----------
 router.get("/leads", wrap(async (req, res) => res.json(await Lead.find(S.mineFilter(req.lu)).sort({ ts: -1 }).lean())));
@@ -80,6 +102,14 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
   if (!f) throw fail("No such follow-up");
   const cfg = await S.getCfg();
   if (b.status && !cfg.statuses.includes(b.status)) throw fail("Unknown status");
+  // Level / Profession / City captured by the caller -> saved on the lead and written back to the Google Sheet
+  let detailsChanged = false;
+  for (const k of ["level", "profession", "city"]) {
+    if (typeof b[k] !== "string") continue;
+    const v = b[k].trim().slice(0, 80);
+    if (v !== (l[k] || "")) { l[k] = v; detailsChanged = true; }
+  }
+  if (detailsChanged) l.sheetDirty = true;
   f.status = b.status || undefined;
   f.note = b.note || "";
   f.callbackAt = b.callbackAt ? new Date(b.callbackAt) : undefined;
@@ -97,6 +127,7 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
   await l.save();
   if (b.status) await S.logAct(l, n, f, req.user.email, set);
   res.json(l);
+  if (detailsChanged) S.pushSoon(); // write to the Google Sheet in the background — never slows the caller down
 }));
 
 // paste phone numbers -> mark Day 1 / Day 2 attendees (+ their follow-ups)

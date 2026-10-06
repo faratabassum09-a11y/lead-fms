@@ -25,7 +25,9 @@ const monthKey = (d) => L(d).toISOString().slice(0, 7);
 // Settings (one document)
 // ---------------------------------------------------------------------------
 export const DEF = {
-  intakeSheet: "", autoAssign: true, workStart: "09:00", workEnd: "19:00", skipSunday: true,
+  intakeSheet: "", // legacy: public CSV link of the sheet (read-only)
+  sheetUrl: "", sheetToken: "", // Google Apps Script web-app link + secret: reads the private sheet AND writes Level / Profession / City back
+  autoAssign: true, workStart: "09:00", workEnd: "19:00", skipSunday: true,
   plan: [{ days: 0, time: "16:00" }, { days: 1, time: "11:00" }, { days: 2, time: "11:00" }],
   statuses: ["Connected", "DNP", "Out of service", "Invalid", "Call Later", "Not interested", "Callback", "Wrong number"],
   attPlan: [{ days: 0, time: "16:00" }, { days: 1, time: "11:00" }], // Day 1 / Day 2 attendee follow-ups
@@ -116,20 +118,67 @@ async function picker() {
   return () => { const n = [...names].sort((a, b) => cnt[a] - cnt[b])[0]; if (n) cnt[n]++; return n; };
 }
 
+// ---- Google Sheet connection --------------------------------------------------------------
+// Preferred: a small Google Apps Script "web app" attached to the sheet (see backend/sheet/Code.gs).
+// It lets the server READ the private sheet and WRITE Level / Profession / City back to the right row.
+// Fallback (read-only): a sheet shared as "Anyone with the link: Viewer".
+const sheetOn = (cfg) => !!(cfg.sheetUrl && cfg.sheetToken);
+async function scriptCall(cfg, body) {
+  const url = cfg.sheetUrl.trim();
+  const res = await fetch(body ? url : `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(cfg.sheetToken)}&action=read`, {
+    method: body ? "POST" : "GET", redirect: "follow",
+    headers: body ? { "Content-Type": "text/plain;charset=utf-8" } : undefined,
+    body: body ? JSON.stringify({ token: cfg.sheetToken, ...body }) : undefined,
+  });
+  const txt = await res.text();
+  let j; try { j = JSON.parse(txt); } catch { throw new Error("The Google Script link did not answer correctly — re-deploy it as a Web app with access “Anyone”"); }
+  if (!j.ok) throw new Error(j.error || "Google Script refused the request (check the secret key)");
+  return j;
+}
+export async function readSheetRows(cfg) {
+  if (sheetOn(cfg)) return (await scriptCall(cfg)).rows;
+  if (!cfg.intakeSheet) throw new Error("Connect the Google Sheet in Settings first");
+  const res = await fetch(csvUrl(cfg.intakeSheet), { redirect: "follow" }), txt = await res.text();
+  if (!res.ok || txt.startsWith("<")) throw new Error("Cannot read sheet — connect it with the Google Script (Settings) or share it as 'Anyone with the link: Viewer'");
+  return parseCsv(txt);
+}
+
+const SYNC_ID = "sync";
+const saveSync = (v) => LeadConfig.findByIdAndUpdate(SYNC_ID, { v: { at: new Date(), ...v } }, { upsert: true }).catch(() => {});
+export const lastSync = async () => (await LeadConfig.findById(SYNC_ID).lean())?.v || null;
+
+// Level / Profession / City typed by callers in the app -> written into the same row of the Google Sheet.
+let pushing = false;
+export async function pushDirty() {
+  if (pushing) return { pushed: 0 };
+  pushing = true;
+  try {
+    const cfg = await getCfg();
+    if (!sheetOn(cfg)) return { pushed: 0, skipped: true };
+    const leads = await Lead.find({ sheetDirty: true }).limit(300);
+    if (!leads.length) return { pushed: 0 };
+    const updates = leads.map((l) => ({ phone: l.phone10 || l.phone, level: l.level || "", profession: l.profession || "", city: l.city || "" }));
+    const r = await scriptCall(cfg, { action: "write", updates });
+    // rows the script could not find (lead was not typed in the sheet, e.g. added manually) are not retried forever
+    await Lead.updateMany({ _id: { $in: leads.map((l) => l._id) } }, { sheetDirty: false });
+    return { pushed: r.updated || 0, missing: r.missing || [] };
+  } finally {
+    pushing = false;
+  }
+}
+export const pushSoon = () => pushDirty().catch((e) => console.error("[leads] sheet write-back failed (will retry):", e.message));
+
 let syncing = false;
 export async function syncIntake() {
   if (syncing) throw new Error("An import is already running — try again in a minute");
   syncing = true;
   try {
     const cfg = await getCfg();
-    if (!cfg.intakeSheet) throw new Error("Paste the intake sheet link in Settings first");
-    const res = await fetch(csvUrl(cfg.intakeSheet), { redirect: "follow" }), txt = await res.text();
-    if (!res.ok || txt.startsWith("<")) throw new Error("Cannot read sheet — share it as 'Anyone with the link: Viewer'");
-    const rows = parseCsv(txt), hi = rows.findIndex((r) => r.some((c) => /phone/i.test(c)));
+    const rows = await readSheetRows(cfg), hi = rows.findIndex((r) => r.some((c) => /phone/i.test(c)));
     if (hi < 0) throw new Error("No header row containing 'Lead Phone'");
-    const H = rows[hi].map((h) => h.trim().toLowerCase()), col = (re) => H.findIndex((h) => re.test(h));
+    const H = rows[hi].map((h) => String(h).trim().toLowerCase()), col = (re) => H.findIndex((h) => re.test(h));
     const ix = { ts: col(/timestamp/), name: col(/name/), email: col(/email/), phone: col(/phone/), utw: col(/utw/), asg: col(/assigned/), lvl: col(/level/), pro: col(/profession/), city: col(/city/) };
-    const cell = (r, i) => (i >= 0 ? (r[i] || "").trim() : "");
+    const cell = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
 
     const data = rows.slice(hi + 1).map((r) => ({ r, phone: cell(r, ix.phone).replace(/\D/g, "") })).filter((x) => x.phone);
     // one query for every existing lead instead of one per row
@@ -146,8 +195,9 @@ export async function syncIntake() {
       const f = { name: cell(r, ix.name), email: cell(r, ix.email), utwDate: cell(r, ix.utw), level: cell(r, ix.lvl), profession: cell(r, ix.pro), city: cell(r, ix.city) };
       const sheetAsg = cell(r, ix.asg), ten = phone.slice(-10), ex = existing.get(ten);
       if (ex) {
-        // the sheet only fills / corrects fields — a blank cell never wipes what the app already has
-        Object.entries(f).forEach(([k, v]) => { if (v) ex[k] = v; });
+        // the sheet only fills / corrects fields — a blank cell never wipes what the app already has,
+        // and what a caller just typed in the app is never overwritten by an older sheet value
+        Object.entries(f).forEach(([k, v]) => { if (v && !(ex.sheetDirty && ["level", "profession", "city"].includes(k))) ex[k] = v; });
         if (sheetAsg && !ex.locked) ex.assignedTo = sheetAsg;
         if (ex.isModified()) { await ex.save(); updated++; }
       } else {
@@ -157,7 +207,11 @@ export async function syncIntake() {
         added++;
       }
     }
+    await saveSync({ added, updated, rows: data.length, ok: true });
     return { added, updated };
+  } catch (e) {
+    await saveSync({ ok: false, error: e.message });
+    throw e;
   } finally {
     syncing = false;
   }
@@ -290,5 +344,6 @@ export async function clearDemo() {
 export function startJobs() {
   const timezone = process.env.TZ_NAME || "Asia/Kolkata";
   cron.schedule("55 23 * * *", () => snapshot().catch((e) => console.error("[leads] snapshot failed:", e.message)), { timezone }); // nightly snapshot, kept forever
-  cron.schedule("*/5 * * * *", () => syncIntake().catch(() => {})); // auto-import new morning leads (quiet when no sheet is set)
+  // every 5 minutes: write any pending Level / Profession / City back to the sheet, then import new morning leads
+  cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); });
 }

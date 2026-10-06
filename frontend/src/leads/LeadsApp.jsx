@@ -10,13 +10,14 @@ import RouteBoundary from "../components/RouteBoundary.jsx";
 import { LeadsProvider, useLeads } from "./LeadsContext.jsx";
 import ShortcutsHelp from "../components/ShortcutsHelp.jsx";
 import { useSlashToFocusSearch } from "../hooks/useSlashToFocusSearch.js";
-import { tasksOf } from "./leadUtils.js";
+import { isNewToday, tasksOf } from "./leadUtils.js";
 import "./leads.css";
 
 const Board = lazyRetry(() => import("./pages/Board.jsx"));
 const Reports = lazyRetry(() => import("./pages/Reports.jsx"));
 const Dashboard = lazyRetry(() => import("./pages/Dashboard.jsx"));
 const Tasks = lazyRetry(() => import("./pages/Tasks.jsx"));
+const FollowUps = lazyRetry(() => import("./pages/FollowUps.jsx"));
 const LeadList = lazyRetry(() => import("./pages/LeadList.jsx"));
 const Attendance = lazyRetry(() => import("./pages/Attendance.jsx"));
 const Activity = lazyRetry(() => import("./pages/Activity.jsx"));
@@ -27,7 +28,7 @@ const Account = lazyRetry(() => import("../pages/Account.jsx"));
 // Pages are code-split; once the app is idle the rest are fetched in the background so moving
 // between pages feels instant.
 const prefetchPages = () => {
-  import("./pages/Tasks.jsx"); import("./pages/LeadList.jsx"); import("./pages/Dashboard.jsx");
+  import("./pages/Tasks.jsx"); import("./pages/FollowUps.jsx"); import("./pages/LeadList.jsx"); import("./pages/Dashboard.jsx");
   import("./pages/Attendance.jsx"); import("./pages/Reports.jsx"); import("./pages/Activity.jsx");
 };
 
@@ -36,6 +37,7 @@ const I = {
   reports: "M4 19h16M7 16V9M12 16V5M17 16v-4",
   dashboard: "M3 13h7V3H3v10Zm0 8h7v-6H3v6Zm11 0h7V11h-7v10Zm0-18v6h7V3h-7Z",
   tasks: "M9 11.2 6.8 9l-1.4 1.4L9 14l7-7-1.4-1.4L9 11.2ZM4 20h16",
+  followups: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.100 4.200 2 2 0 0 1 4.100 2h3a2 2 0 0 1 2 1.700c.1 1 .4 1.900.7 2.800a2 2 0 0 1-.5 2.100L8.100 9.900a16 16 0 0 0 6 6l1.300-1.300a2 2 0 0 1 2.100-.5c.9.3 1.800.6 2.800.7a2 2 0 0 1 1.700 2Z",
   leads: "M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3 0-8 1.5-8 4.5V21h16v-2.5c0-3-5-4.5-8-4.5Zm8.500-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
   attend: "M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.500a2 2 0 0 0 0 3V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.500a2 2 0 0 0 0-3V9ZM10 7v10",
   activity: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
@@ -64,11 +66,15 @@ function Shell() {
   const toggleCollapsed = () => setCollapsed((v) => { localStorage.setItem("ld-sidebar-collapsed", v ? "0" : "1"); return !v; });
 
   const overdue = tasksOf(leads, who).filter((t) => new Date(t.f.planned) < now).length;
+  const eod = new Date(now); eod.setHours(23, 59, 59, 999);
+  const pending = tasksOf(leads, who).filter((t) => new Date(t.f.planned) <= eod);
+  const todayCount = pending.filter(isNewToday).length, followCount = pending.length - todayCount;
   const links = [
     ...(admin ? [{ to: "/board", label: "Daily Board", icon: "board" }] : []),
     ...(admin ? [{ to: "/reports", label: "Reports", icon: "reports" }] : []),
     { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
-    { to: "/tasks", label: admin ? "Today's Tasks" : "My Tasks", icon: "tasks", badge: overdue },
+    { to: "/tasks", label: admin ? "Today's Tasks" : "My Tasks", icon: "tasks", badge: todayCount },
+    { to: "/followups", label: admin ? "Follow-ups" : "My Follow-ups", icon: "followups", badge: followCount },
     { to: "/leads", label: "Leads", icon: "leads" },
     { to: "/attendance", label: "Attendance", icon: "attend" },
     { to: "/activity", label: "Activity", icon: "activity" },
@@ -141,7 +147,9 @@ function Shell() {
         <RouteBoundary>
           <Suspense fallback={<PageLoader />}>
             <div className="ld-topbar">
-              <NavLink to="/tasks" className={"ld-overdue" + (overdue ? " has" : "")}>🔔 {overdue} overdue</NavLink>
+              {admin
+                ? <NavLink to="/tasks" className={"ld-overdue" + (overdue ? " has" : "")}>🔔 {overdue} overdue</NavLink>
+                : <NavLink to="/tasks" className="ld-overdue ld-overdue-calm">🌿 My tasks</NavLink>}
               {admin && <button type="button" className="ld-btn ld-btn-solid" disabled={busy} onClick={sync}>{busy ? "Importing…" : "⟳ Import from sheet"}</button>}
             </div>
             <Routes>
@@ -150,6 +158,7 @@ function Shell() {
               <Route path="reports" element={<Reports />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tasks" element={<Tasks />} />
+              <Route path="followups" element={<FollowUps />} />
               <Route path="leads" element={<LeadList />} />
               <Route path="attendance" element={<Attendance />} />
               <Route path="activity" element={<Activity />} />

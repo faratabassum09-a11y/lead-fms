@@ -135,3 +135,28 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-sheet th.g1 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(46, 160, 120, 0.16), rgba(46, 160, 120, 0.16)); }
 .ld-sheet th.g2 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(224, 145, 43, 0.18), rgba(224, 145, 43, 0.18)); }
 .ld-sheet th.g3 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(109, 79, 192, 0.16), rgba(109, 79, 192, 0.16)); }
+<<<<<<< HEAD
+=======
+
+/* ---- caller-friendly task cards: calm colours, no alarm, big tap targets ---- */
+.ld-actions-3 .ld-btn { padding: 9px 16px; font-size: 13.5px; }
+.ld-ico { flex-shrink: 0; }
+.ld-btn-wa, .ld-btn-wa:hover:not(:disabled) { background: #1fa855; border-color: #1fa855; color: #fff; }
+.ld-btn-wa:hover:not(:disabled) { background: #178a45; border-color: #178a45; transform: translateY(-1px); }
+.ld-task-calm { border-left-color: var(--accent); gap: 12px; padding: 16px 18px; }
+.ld-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ld-who b { font-size: 16px; }
+.ld-avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 16px; background: var(--accent-light); color: var(--accent-dark); flex-shrink: 0; }
+.ld-soft { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px; background: var(--accent-light); color: var(--accent-dark); white-space: nowrap; }
+.ld-note { font-size: 13px; color: var(--muted); font-style: italic; background: var(--panel-alt); border-radius: var(--radius-sm); padding: 8px 10px; }
+.ld-overdue-calm, .ld-overdue-calm.has { background: var(--accent-light); color: var(--accent-dark); border-color: transparent; }
+.ld-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 560px) { .ld-trio { grid-template-columns: 1fr; } .ld-actions-3 .ld-btn { flex: 1 1 auto; justify-content: center; } }
+
+/* ---- Settings: sheet connection ---- */
+.ld-steps { display: grid; gap: 10px; margin: 6px 0 16px; font-size: 13.5px; }
+.ld-steps code { background: var(--panel-alt); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 12.5px; }
+.ld-callout { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13.5px; margin-bottom: 12px; }
+.ld-callout.good { background: var(--good-bg); color: var(--good); }
+.ld-callout.bad { background: var(--bad-bg); color: var(--bad); }
+>>>>>>> d52ed31 (Split Tasks: Today's Tasks for new leads, separate Follow-ups page for FU1/FU2/FU3)

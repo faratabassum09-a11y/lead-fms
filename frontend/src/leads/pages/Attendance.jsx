@@ -13,7 +13,7 @@ export default function Attendance() {
   const [mode, setMode] = useState("d1"), [q, setQ] = useState(""), [paste, setPaste] = useState(""), [lim, setLim] = useState(200);
   if (!loaded) return <PageLoader />;
   const d = mode === "d2" ? 2 : 1, set = "d" + d + "Fus", needle = q.trim().toLowerCase();
-  const hit = (l) => !needle || (l.name + l.phone).toLowerCase().includes(needle);
+  const hit = (l) => !needle || (l.name + (admin ? l.phone : "")).toLowerCase().includes(needle);
   const rows = leads.filter((l) => (mode === "mark" || l["day" + d]) && hit(l) && (!who || mode === "mark" || stageWho(l, set) === who.toLowerCase()));
   const caller = (l) => l["d" + d + "Assigned"] || l.assignedTo;
   const mark = async () => {
@@ -35,7 +35,7 @@ export default function Attendance() {
             <button key={k} type="button" role="tab" aria-selected={mode === k} className={"range-pill" + (mode === k ? " range-pill-active" : "")} onClick={() => setMode(k)}>{v}</button>
           ))}
         </div>
-        <SearchInput value={q} onChange={setQ} placeholder="Search name or phone…" />
+        <SearchInput value={q} onChange={setQ} placeholder={admin ? "Search name or phone…" : "Search name…"} />
       </div>
       {mode !== "mark" && admin && (
         <div className="ld-panel" style={{ marginTop: 14 }}>
@@ -47,10 +47,10 @@ export default function Attendance() {
       )}
       {mode === "mark" ? (
         <div className="table-wrap">
-          <table className="table"><thead><tr><th>Lead</th><th>Phone</th><th>Caller</th><th>Day 1</th><th>Day 2</th></tr></thead>
+          <table className="table"><thead><tr><th>Lead</th>{admin && <th>Phone</th>}<th>Caller</th><th>Day 1</th><th>Day 2</th></tr></thead>
             <tbody>
               {rows.slice(0, lim).map((l) => (
-                <tr key={l._id}><td><b>{l.name}</b></td><td>{l.phone}</td><td>{l.assignedTo}</td>
+                <tr key={l._id}><td><b>{l.name}</b></td>{admin && <td>{l.phone}</td>}<td>{l.assignedTo}</td>
                   <td><input type="checkbox" checked={!!l.day1} onChange={(e) => tick(l, { day1: e.target.checked })} aria-label={"Day 1 " + l.name} /></td>
                   <td><input type="checkbox" checked={!!l.day2} onChange={(e) => tick(l, { day2: e.target.checked })} aria-label={"Day 2 " + l.name} /></td></tr>
               ))}
@@ -61,8 +61,8 @@ export default function Attendance() {
         <div className="table-wrap">
           <table className="table ld-sheet">
             <thead>
-              <tr><th colSpan={8} className="g0">Day {d} Attendees</th>{[1, 2].map((n) => <th key={n} colSpan={5} className={"g" + n}>FollowUp {n} · Invitation Call {n}</th>)}</tr>
-              <tr>{["Timestamp", "Lead Name", "Lead Email", "Lead Phone", "UTW Date", "Webinar Reg.", "Assigned To", "Current FollowUp Status"].map((h) => <th key={h}>{h}</th>)}
+              <tr><th colSpan={admin ? 8 : 6} className="g0">Day {d} Attendees</th>{[1, 2].map((n) => <th key={n} colSpan={5} className={"g" + n}>FollowUp {n} · Invitation Call {n}</th>)}</tr>
+              <tr>{["Timestamp", "Lead Name", ...(admin ? ["Lead Email", "Lead Phone"] : []), "UTW Date", "Webinar Reg.", "Assigned To", "Current FollowUp Status"].map((h) => <th key={h}>{h}</th>)}
                 {[1, 2].flatMap((n) => ["Planned", "Actual", "Status", "Action", "Time Delay"].map((h) => <th key={n + h} className={"g" + n}>{h}</th>))}</tr>
             </thead>
             <tbody>
@@ -70,7 +70,7 @@ export default function Attendance() {
                 const F = l[set] || [], cur = [...F].reverse().find((f) => f.status)?.status || "—";
                 return (
                   <tr key={l._id}>
-                    <td>{fmt(l.ts)}</td><td><b>{l.name}</b></td><td>{l.email}</td><td>{l.phone}</td><td>{l.utwDate}</td><td>{l.webReg}</td><td>{caller(l)}</td><td>{cur}</td>
+                    <td>{fmt(l.ts)}</td><td><b>{l.name}</b></td>{admin && <><td>{l.email}</td><td>{l.phone}</td></>}<td>{l.utwDate}</td><td>{l.webReg}</td><td>{caller(l)}</td><td>{cur}</td>
                     {F.map((f, i) => {
                       const s = state(f, now), dl = delay(f, now);
                       return (

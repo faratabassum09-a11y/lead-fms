@@ -35,7 +35,7 @@ export function LeadsProvider({ children }) {
   const replace = (u) => setLeads((p) => p.map((x) => (x._id === u._id ? u : x)));
   const saveFollowUp = async (l, n, body, set) => {
     replace(await api.ldSaveFollowUp(l._id, n, { ...body, set }));
-    toast(`Saved: ${body.status}`, "good");
+    toast(admin ? `Saved: ${body.status}` : "Saved ✓ Nice work!", "good");
   };
   const patchLead = async (l, body) => replace(await api.ldPatchLead(l._id, body));
   const sync = async () => {
@@ -59,7 +59,7 @@ export function LeadsProvider({ children }) {
       {children}
       {modal && cfg && (
         <>
-          <UpdateModal m={modal} cfg={cfg} leads={all} onClose={() => setModal(null)}
+          <UpdateModal m={modal} cfg={cfg} leads={all} admin={admin} onClose={() => setModal(null)}
             onSave={async (b) => { try { await saveFollowUp(modal.l, modal.n, b, modal.set); setModal(null); } catch (e) { toast(e.message, "bad"); } }} />
         </>
       )}

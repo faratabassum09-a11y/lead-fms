@@ -34,6 +34,7 @@ const LeadSchema = new Schema(
     d1Fus: [Fu], // Day 1 attendee follow-ups
     d2Fus: [Fu], // Day 2 attendee follow-ups
     source: String, // sheet | manual | demo | sheet-import
+    sheetDirty: { type: Boolean, index: true }, // Level / Profession / City changed in the app and not yet written back to the Google Sheet
   },
   { timestamps: true }
 );

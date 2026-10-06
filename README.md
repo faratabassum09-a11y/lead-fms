@@ -64,13 +64,30 @@ npm run seed -- --reset   # re-import only the leads that came from the import
 
 ## Daily flow
 
-1. In **Settings** paste the intake sheet link once (share it as *Anyone with the link: Viewer*) with the columns
-   Timestamp, Lead Name, Email, Lead Phone, Assigned To, Level, Profession, City. Blank *Assigned To* = auto-assigned.
-2. The server imports every 5 minutes (or press **Import from sheet**), plans Follow-up 1/2/3, and shows them on
-   the caller's **My Tasks**. Re-import never duplicates (phone = unique) and blank cells never wipe existing data.
-3. Callers tap **Call / WhatsApp** and then an outcome (Connected, DNP, Callback…), add notes. Everything is logged.
-4. Admins use the **Daily Board** (live per-caller work, escalations, nightly history), **Reports**
-   (this month / 3 / 6 / 12 months / all time, CSV export), bulk re-assign, attendance and Settings.
+**The Google Sheet** has these columns:
+
+| Typed by the morning person | Filled by the website |
+|---|---|
+| Timestamp · Lead Name · Lead Email · Lead Phone · UTW Date · Assigned To | Level · Profession · City |
+
+1. **One-time connection** (Settings → *Google Sheet ↔ website*): generate a secret key → save → *Copy Apps Script* →
+   in the sheet open *Extensions → Apps Script*, paste, run `setupSheet` once (it sets up **every lead tab**), *Deploy → Web app* (Execute as *Me*,
+   access *Anyone*) → paste the Web app URL in Settings → *Test connection*. The sheet stays **private**; only that URL
+   plus the secret key can read it. (Script source: `backend/sheet/Code.gs`.)
+   **All tabs are read:** any tab with a `Lead Name` + `Lead Phone` header row (columns may be in any order). Tabs starting with `_`, hidden tabs and tabs without those headers are ignored; run `checkTabs` in Apps Script to see which. Level / Profession / City are written back into the tab the lead is in.
+2. Each morning the person adds rows. The server imports every 5 minutes (or press **Import from sheet**), plans
+   Follow-up 1/2/3 and shows them on the assigned caller's **My Tasks**. Re-import never duplicates (phone = unique),
+   and blank cells never wipe existing data. Blank *Assigned To* = auto-assigned.
+3. A caller taps **Call / WhatsApp**, then **Update status** — picks the outcome, adds Level / Profession / City and a note.
+   Level / Profession / City are written back to the **same row** of the Google Sheet within seconds
+   (failed write-backs retry every 5 minutes; what a caller typed is never overwritten by an older sheet value).
+4. Admins use the **Daily Board**, **Reports** (CSV export), bulk re-assign, attendance and Settings.
+
+### Caller view (My Tasks)
+Callers get a calm screen: a greeting, a small batch of people to call, and only three buttons — **Call**, **WhatsApp**,
+**Update status**. Phone numbers are not displayed anywhere for callers (tasks, Leads, Attendance, Activity), and there are no
+red "overdue" counters. Admins keep the full detail. *(Numbers are hidden on screen; the Call / WhatsApp buttons still
+need them internally to dial.)*
 
 Automations (all in Settings): auto-import, round-robin assignment, auto-retry (DNP → next follow-up pulled forward),
 auto-close (Not interested / Wrong number cancels the rest), overdue escalation to admin, WhatsApp message template,

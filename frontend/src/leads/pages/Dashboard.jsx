@@ -36,7 +36,7 @@ export default function Dashboard() {
     <div className="page">
       <PageHeader title="Dashboard" subtitle={admin ? "Funnel, caller performance and call outcomes across all leads" : "Your funnel and call outcomes"}
         meta={<select className="ld-select" value={range} onChange={(e) => setRange(e.target.value)} aria-label="Date range"><option value="all">All time</option><option value="today">Today's leads</option><option value="7d">Last 7 days</option></select>} />
-      <Stats items={[["Leads", L.length, "accent"], ["Connect rate", pc(conn, L.length), "good"], ["Follow-ups done", done], ["Overdue", over, over ? "bad" : ""], ["Day 1 → Day 2", `${d1} → ${d2}`]]} />
+      <Stats items={[["Leads", L.length, "accent"], ["Connect rate", pc(conn, L.length), "good"], ["Follow-ups done", done], ...(admin ? [["Overdue", over, over ? "bad" : ""]] : []), ["Day 1 → Day 2", `${d1} → ${d2}`]]} />
       <div className="ld-grid2">
         <Panel title="Conversion funnel">{fun.map(([k, v]) => <Bar key={k} label={k} v={v} max={fun[0][1]} extra={fun[0][1] ? ` (${Math.round((v / fun[0][1]) * 100)}%)` : ""} />)}</Panel>
         <Panel title="New leads – last 7 days">
@@ -44,8 +44,8 @@ export default function Dashboard() {
         </Panel>
         <Panel title={admin ? "Caller performance" : "My performance"}>
           <div className="table-wrap ld-flush"><table className="table">
-            <thead><tr><th>Caller</th><th>Leads</th><th>Done</th><th>Overdue</th><th>Connected</th></tr></thead>
-            <tbody>{Object.entries(by).map(([k, v]) => <tr key={k}><td><b>{k}</b></td><td>{v.n}</td><td>{v.done}</td><td className={v.over ? "ld-bad" : ""}>{v.over}</td><td>{v.conn}</td></tr>)}</tbody>
+            <thead><tr><th>Caller</th><th>Leads</th><th>Done</th>{admin && <th>Overdue</th>}<th>Connected</th></tr></thead>
+            <tbody>{Object.entries(by).map(([k, v]) => <tr key={k}><td><b>{k}</b></td><td>{v.n}</td><td>{v.done}</td>{admin && <td className={v.over ? "ld-bad" : ""}>{v.over}</td>}<td>{v.conn}</td></tr>)}</tbody>
           </table></div>
         </Panel>
         <Panel title="Call outcomes">

@@ -38,6 +38,13 @@ export const waText = (l, cfg) => (cfg?.waTemplate || "").replace("{name}", l.na
 
 export const pc = (a, b) => (b ? Math.round((a / b) * 100) + "%" : "—");
 export const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
+// a task whose lead came in today (Timestamp = today) -> "Today's Tasks"; everything else -> "Follow-ups"
+export const isNewToday = (t) => {
+  if (!t.l.ts) return false;
+  const a = new Date(); a.setHours(0, 0, 0, 0);
+  const ts = new Date(t.l.ts);
+  return ts >= a && ts <= endOfToday();
+};
 
 export function downloadCsv(filename, rows) {
   const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");

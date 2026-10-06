@@ -40,18 +40,22 @@ export const Pill = ({ s, children }) => <span className={"ld-pill ld-pill-" + s
 export const Empty = ({ children }) => <div className="ld-empty">{children}</div>;
 
 // "Update status" dialog: pick the outcome, add a note, schedule a callback.
-export function UpdateModal({ m, cfg, leads, onSave, onClose }) {
+export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
   const l = leads.find((x) => x._id === m.l._id) || m.l;
   const set = m.set || "fus", n = m.n, f = (l[set] || [])[n - 1] || {};
   const [status, setStatus] = useState(m.preset || f.status || "");
   const [note, setNote] = useState(f.note || "");
   const [cb, setCb] = useState(f.callbackAt ? toLocalInput(f.callbackAt) : "");
+  const [level, setLevel] = useState(l.level || "");
+  const [profession, setProfession] = useState(l.profession || "");
+  const [city, setCity] = useState(l.city || "");
   const [saving, setSaving] = useState(false);
+  const professions = [...new Set(leads.map((x) => (x.profession || "").trim()).filter((v) => v && !/^(n\/?a|na)$/i.test(v)))].slice(0, 400);
   const history = (l[set] || []).map((x, i) => ({ x, i })).filter(({ x }) => x.note);
   // browser-local time -> absolute time, so the server never has to guess the zone
   const submit = async () => {
     setSaving(true);
-    try { await onSave({ status, note, callbackAt: status === "Callback" && cb ? new Date(cb).toISOString() : "" }); }
+    try { await onSave({ status, note, level, profession, city, callbackAt: status === "Callback" && cb ? new Date(cb).toISOString() : "" }); }
     finally { setSaving(false); }
   };
   return (
@@ -60,20 +64,31 @@ export function UpdateModal({ m, cfg, leads, onSave, onClose }) {
         <div className="modal-head">
           <div>
             <h3>{l.name}</h3>
-            <p className="modal-sub">Follow-up {n}{set === "d1Fus" ? " · Day 1 attendee" : set === "d2Fus" ? " · Day 2 attendee" : ""} · {[l.city, l.profession, l.level].filter(Boolean).join(" · ") || "no extra details"}</p>
+            <p className="modal-sub">{admin ? `Follow-up ${n}` : `Call ${n}`}{set === "d1Fus" ? " · Day 1 attendee" : set === "d2Fus" ? " · Day 2 attendee" : ""}</p>
           </div>
           <button type="button" className="modal-x" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="ld-actions">
-          <a className="ld-btn ld-btn-solid" href={"tel:" + l.phone}>📞 {l.phone}</a>
+          <a className="ld-btn ld-btn-solid" href={"tel:" + l.phone}>📞 {admin ? l.phone : "Call"}</a>
           <a className="ld-btn" href={wa(l.phone, waText(l, cfg))} target="_blank" rel="noreferrer">💬 WhatsApp</a>
         </div>
-        <div className="ld-chips">
+        <div className="card-label" style={{ marginTop: 14 }}>How did the call go?</div>
+        <div className="ld-chips" style={{ marginTop: 8 }}>
           {cfg.statuses.map((s) => <button key={s} type="button" className={"ld-chip" + (status === s ? " on" : "")} onClick={() => setStatus(s)}>{s}</button>)}
         </div>
         {status === "Callback" && (
           <label className="modal-field">Call back at<input type="datetime-local" value={cb} onChange={(e) => setCb(e.target.value)} /></label>
         )}
+        <div className="card-label">About this person <span className="ld-small">(saved to the sheet)</span></div>
+        <div className="ld-trio">
+          <label className="modal-field">Level
+            <input list="ld-levels" value={level} onChange={(e) => setLevel(e.target.value)} placeholder="Beginner / Master…" />
+            <datalist id="ld-levels"><option>Beginner</option><option>Master</option><option>N/A</option></datalist></label>
+          <label className="modal-field">Profession
+            <input list="ld-profs" value={profession} onChange={(e) => setProfession(e.target.value)} placeholder="e.g. Teacher" />
+            <datalist id="ld-profs">{professions.map((p) => <option key={p} value={p} />)}</datalist></label>
+          <label className="modal-field">City<input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Pune" /></label>
+        </div>
         <label className="modal-field">Note<textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did the lead say?" /></label>
         {history.length > 0 && (
           <div className="ld-history">

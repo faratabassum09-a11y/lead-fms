@@ -16,7 +16,7 @@ export default function LeadList() {
   const rows = useMemo(
     () => leads.filter((l) =>
       (doer === "all" || (doer === "none" ? !l.assignedTo : l.assignedTo === doer)) &&
-      (!needle || [l.name, l.phone, l.email, l.city].join(" ").toLowerCase().includes(needle)) &&
+      (!needle || [l.name, admin ? l.phone : "", admin ? l.email : "", l.city].join(" ").toLowerCase().includes(needle)) &&
       (flt === "all" || l.fus.some((f) => state(f, now) === flt))),
     [leads, doer, needle, flt, now]
   );
@@ -34,10 +34,10 @@ export default function LeadList() {
     <div className="page">
       <PageHeader title="Leads" subtitle="Lead Qualification and Follow-Up 1 · 2 · 3 for every lead"
         meta={<div className="ld-actions"><span className="chip"><strong>{rows.length}</strong> leads</span>
-          <button type="button" className="ld-btn" onClick={() => downloadCsv("leads.csv", [["Lead", "Phone", "Caller", "City", "Day1", "Day2", "FU1", "FU2", "FU3"], ...rows.map((l) => [l.name, l.phone, l.assignedTo, l.city, l.day1 ? "Y" : "", l.day2 ? "Y" : "", ...l.fus.map((f) => f.status || "")])])}>⬇ CSV</button>
+          <button type="button" className="ld-btn" onClick={() => downloadCsv("leads.csv", [["Lead", ...(admin ? ["Phone"] : []), "Caller", "City", "Day1", "Day2", "FU1", "FU2", "FU3"], ...rows.map((l) => [l.name, ...(admin ? [l.phone] : []), l.assignedTo, l.city, l.day1 ? "Y" : "", l.day2 ? "Y" : "", ...l.fus.map((f) => f.status || "")])])}>⬇ CSV</button>
           {admin && <button type="button" className="ld-btn ld-btn-solid" onClick={() => setAdd({})}>＋ Add lead</button>}</div>} />
       <div className="toolbar">
-        <SearchInput value={q} onChange={setQ} placeholder="Search name, phone, city…" />
+        <SearchInput value={q} onChange={setQ} placeholder={admin ? "Search name, phone, city…" : "Search name or city…"} />
         <div className="filter-row">
           {admin && <select value={doer} onChange={(e) => setDoer(e.target.value)}><option value="all">All callers</option><option value="none">Unassigned</option>{callers.map((d) => <option key={d}>{d}</option>)}</select>}
           <select value={flt} onChange={(e) => setFlt(e.target.value)}><option value="all">All follow-ups</option><option value="over">Has overdue</option><option value="wait">Has upcoming</option><option value="done">Has done</option></select>
@@ -52,10 +52,10 @@ export default function LeadList() {
       <div className="table-wrap">
         <table className="table ld-sheet">
           <thead>
-            <tr><th colSpan={admin ? 13 : 12} className="g0">Lead Qualification</th>{[1, 2, 3].map((n) => <th key={n} colSpan={5} className={"g" + n}>Follow-Up {n} · planned {cfg?.plan?.[n - 1]?.time}</th>)}</tr>
+            <tr><th colSpan={admin ? 13 : 10} className="g0">Lead Qualification</th>{[1, 2, 3].map((n) => <th key={n} colSpan={5} className={"g" + n}>Follow-Up {n} · planned {cfg?.plan?.[n - 1]?.time}</th>)}</tr>
             <tr>
               {admin && <th><input type="checkbox" aria-label="Select all shown" onChange={(e) => setSel(e.target.checked ? Object.fromEntries(rows.slice(0, lim).map((l) => [l._id, 1])) : {})} /></th>}
-              {["Timestamp", "Lead Name", "Phone", "Email", "Assigned To", "Current Status", "Level", "Profession", "City", "UTW Date", "Webinar Reg.", "Day 1/2"].map((h) => <th key={h}>{h}</th>)}
+              {["Timestamp", "Lead Name", ...(admin ? ["Phone", "Email"] : []), "Assigned To", "Current Status", "Level", "Profession", "City", "UTW Date", "Webinar Reg.", "Day 1/2"].map((h) => <th key={h}>{h}</th>)}
               {[1, 2, 3].flatMap((n) => ["Planned", "Actual", "Status", "Action", "Delay"].map((h) => <th key={n + h} className={"g" + n}>{h}</th>))}
             </tr>
           </thead>
@@ -65,7 +65,7 @@ export default function LeadList() {
               return (
                 <tr key={l._id}>
                   {admin && <td><input type="checkbox" checked={!!sel[l._id]} onChange={(e) => setSel({ ...sel, [l._id]: e.target.checked })} aria-label={"Select " + l.name} /></td>}
-                  <td>{fmt(l.ts)}</td><td><b>{l.name}</b></td><td>{l.phone}</td><td>{l.email}</td>
+                  <td>{fmt(l.ts)}</td><td><b>{l.name}</b></td>{admin && <><td>{l.phone}</td><td>{l.email}</td></>}
                   <td>{l.assignedTo || <span className="ld-pill ld-pill-over">Unassigned</span>}</td>
                   <td>{cur}</td><td>{l.level}</td><td>{l.profession}</td><td>{l.city}</td><td>{l.utwDate}</td><td>{l.webReg}</td>
                   <td>{l.day1 ? "✅" : "▫️"}{l.day2 ? "✅" : "▫️"}</td>
