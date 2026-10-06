@@ -27,24 +27,31 @@ const loadLead = async (id) => {
 // ---------- settings ----------
 router.get("/config", wrap(async (req, res) => {
   const c = await S.getCfg();
-  res.json(req.lu.leadAdmin ? { ...c, lastSync: await S.lastSync() } : { statuses: c.statuses, plan: c.plan, waTemplate: c.waTemplate });
+  res.json(req.lu.leadAdmin ? { ...c, lastSync: await S.lastSync() } : { statuses: c.statuses, plan: c.plan, attPlan: c.attPlan, waTemplate: c.waTemplate });
 }));
 router.put("/config", adminOnly, wrap(async (req, res) => {
-  const b = req.body || {};
-  delete b.lastSync;
-  const next = { ...(await S.getCfg()), ...b };
+  const b = req.body || {}, applyToExisting = b.applyToExisting !== false;
+  delete b.lastSync; delete b.applyToExisting;
+  const prev = await S.getCfg(), next = { ...prev, ...b };
+  next.plan = S.cleanPlan(next.plan, "Lead follow-ups");
+  next.attPlan = S.cleanPlan(next.attPlan, "Attendee follow-ups");
   next.sheetUrl = String(next.sheetUrl || "").trim();
   if (next.sheetUrl && !/^https:\/\/script\.google(usercontent)?\.com\//.test(next.sheetUrl)) throw fail("The Google Script link should start with https://script.google.com/…");
   if (!Array.isArray(next.statuses) || !next.statuses.length) throw fail("Add at least one call status");
   await S.setCfg(next);
-  res.json(await S.getCfg());
+  // a follow-up was ADDED -> give it to every existing lead (and so to Today / Delayed / Attendee Follow-ups)
+  const grew = next.plan.length > prev.plan.length || next.attPlan.length > prev.attPlan.length;
+  const added = grew && applyToExisting ? await S.addStepsToExistingLeads(await S.getCfg()) : null;
+  res.json({ ...(await S.getCfg()), ...(added ? { addedToLeads: added.leads, addedSteps: added.steps } : {}) });
 }));
 
 // the chooser card on the Hub
 router.get("/stats", wrap(async (req, res) => res.json(await S.stats(req.lu))));
 
 // ---------- intake sheet ----------
-router.post("/sync", adminOnly, wrap(async (_req, res) => { const r = await S.syncIntake(); S.pushSoon(); res.json(r); }));
+router.post("/sync", adminOnly, wrap(async (req, res) => { const r = await S.syncIntake({ name: req.user.name, email: req.user.email }); S.pushSoon(); res.json(r); }));
+// the import history shown in Settings: when, who, how many leads
+router.get("/import-log", adminOnly, wrap(async (_req, res) => res.json(await S.importLog(100))));
 // the Google Apps Script to paste into the sheet (Extensions -> Apps Script), with this site's secret key filled in
 router.get("/sheet-script", adminOnly, wrap(async (_req, res) => {
   const c = await S.getCfg();
@@ -130,13 +137,19 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
   if (detailsChanged) S.pushSoon(); // write to the Google Sheet in the background — never slows the caller down
 }));
 
-// paste phone numbers -> mark Day 1 / Day 2 attendees (+ their follow-ups)
+// paste phone numbers and/or emails -> mark Day 1 / Day 2 attendees (+ their follow-ups)
 router.post("/attendance", adminOnly, wrap(async (req, res) => {
   const d = +req.body?.day === 2 ? 2 : 1, cfg = await S.getCfg(), missing = [];
+  const entries = [...(req.body?.entries || []), ...(req.body?.phones || [])].map((x) => String(x).trim()).filter(Boolean);
   let marked = 0;
-  for (const p of req.body?.phones || []) {
-    const n = String(p).replace(/\D/g, "").slice(-10), l = n && (await S.byPhone(n));
-    if (!l) { missing.push(p); continue; }
+  const seen = new Set();
+  for (const e of entries) {
+    const n = e.replace(/\D/g, "").slice(-10);
+    // an email is matched on the email; anything else on the phone number
+    const l = S.isEmail(e) ? await S.byEmail(e) : n.length >= 10 ? await S.byPhone(n) : null;
+    if (!l) { missing.push(e); continue; }
+    if (seen.has(String(l._id))) continue; // the same person pasted by phone and by email
+    seen.add(String(l._id));
     l["day" + d] = true;
     if (!l["d" + d + "Fus"].length) l["d" + d + "Fus"] = S.attFus(cfg);
     await l.save();
@@ -155,10 +168,6 @@ router.post("/snapshot", adminOnly, wrap(async (_req, res) => { await S.snapshot
 router.get("/daily", adminOnly, wrap(async (req, res) =>
   res.json(await LeadSnapshot.find().sort({ date: -1 }).limit(Math.min(+req.query.days || 30, 366)).lean())));
 router.get("/reports", wrap(async (req, res) => res.json(await S.reports(req.lu, +req.query.months || 0))));
-
-// ---------- demo data ----------
-router.post("/demo", adminOnly, wrap(async (_req, res) => res.json(await S.loadDemo())));
-router.delete("/demo", adminOnly, wrap(async (_req, res) => { await S.clearDemo(); res.json({ ok: 1 }); }));
 
 // ---------- team (admin) ----------
 const teamRow = (u) => ({

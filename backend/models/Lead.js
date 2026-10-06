@@ -17,6 +17,7 @@ const LeadSchema = new Schema(
     ts: Date, // when the lead came in
     name: String,
     email: String,
+    emailKey: { type: String, index: true }, // trimmed + lower-cased email: the sheet import / attendance match leads by it too
     phone: String,
     phone10: { type: String, index: true }, // last 10 digits: matches 98xxxxxxxx and 9198xxxxxxxx
     utwDate: String,
@@ -33,7 +34,7 @@ const LeadSchema = new Schema(
     fus: [Fu], // Lead Qualification follow-ups 1..3
     d1Fus: [Fu], // Day 1 attendee follow-ups
     d2Fus: [Fu], // Day 2 attendee follow-ups
-    source: String, // sheet | manual | demo | sheet-import
+    source: String, // sheet | manual | sheet-import
     sheetDirty: { type: Boolean, index: true }, // Level / Profession / City changed in the app and not yet written back to the Google Sheet
   },
   { timestamps: true }
@@ -41,6 +42,7 @@ const LeadSchema = new Schema(
 LeadSchema.index({ ts: -1 });
 LeadSchema.pre("save", function () {
   if (this.phone) this.phone10 = this.phone.replace(/\D/g, "").slice(-10);
+  this.emailKey = (this.email || "").trim().toLowerCase();
 });
 
 export const Lead = mongoose.model("Lead", LeadSchema, "leads");
@@ -59,6 +61,16 @@ export const LeadConfig = mongoose.model(
   "Config",
   new Schema({ _id: String, v: Object }),
   "configs"
+);
+
+// One row per "Import from sheet" (manual click, or an automatic run that actually changed something).
+export const LeadImportLog = mongoose.model(
+  "ImportLog",
+  new Schema({
+    at: { type: Date, index: true }, by: String, byEmail: String, trigger: String, // "manual" | "auto"
+    added: Number, updated: Number, byEmailMatched: Number, rows: Number, ok: Boolean, error: String,
+  }),
+  "importlogs"
 );
 
 // Nightly copy of the Daily Board, saved forever.

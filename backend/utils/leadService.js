@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import User from "../models/User.js";
-import { Lead, LeadActivity, LeadConfig, LeadSnapshot } from "../models/Lead.js";
+import { Lead, LeadActivity, LeadConfig, LeadImportLog, LeadSnapshot } from "../models/Lead.js";
 
 // A caller is matched to leads by their caller name ("Assigned To" in the sheet); falls back to the account name.
 export const leadCallerName = (user) => ((user && (user.leadName || user.name)) || "").trim();
@@ -54,6 +54,12 @@ export const ownsLead = (user, l) =>
   user.leadAdmin || [l.assignedTo, l.d1Assigned, l.d2Assigned].some((x) => (x || "").toLowerCase() === leadCallerName(user).toLowerCase());
 
 export const byPhone = (n) => Lead.findOne({ $or: [{ phone10: n }, { key: n }, { key: "91" + n }] });
+export const normEmail = (e) => String(e || "").trim().toLowerCase();
+export const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normEmail(e));
+export const byEmail = (e) => Lead.findOne({ emailKey: normEmail(e) });
+// older leads were saved before emailKey existed — fill it in once (cheap no-op afterwards)
+export const backfillEmailKeys = () =>
+  Lead.updateMany({ emailKey: { $exists: false }, email: { $exists: true, $nin: ["", null] } }, [{ $set: { emailKey: { $toLower: { $trim: { input: "$email" } } } } }]);
 
 // ---------------------------------------------------------------------------
 // Scheduling
@@ -75,6 +81,49 @@ export const planFor = (ts, cfg, plan = cfg.plan) =>
     return { planned: adj(U(l), cfg) };
   });
 export const attFus = (cfg) => planFor(new Date(), cfg, cfg.attPlan);
+
+// ---------------------------------------------------------------------------
+// Follow-up plans can hold up to MAX_FU steps. When admins ADD a step in Settings, every existing lead
+// that still follows the plan gets that step too (so Today / Delayed / Attendee Follow-ups all pick it up).
+// ---------------------------------------------------------------------------
+export const MAX_FU = 10;
+export function cleanPlan(plan, label) {
+  if (!Array.isArray(plan) || !plan.length) throw Object.assign(new Error(`${label}: keep at least one follow-up`), { status: 400 });
+  if (plan.length > MAX_FU) throw Object.assign(new Error(`${label}: at most ${MAX_FU} follow-ups`), { status: 400 });
+  return plan.map((p, i) => {
+    const days = Math.floor(Number(p?.days));
+    if (!Number.isFinite(days) || days < 0 || days > 365) throw Object.assign(new Error(`${label}: FU${i + 1} days must be 0 – 365`), { status: 400 });
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(p?.time || ""))) throw Object.assign(new Error(`${label}: FU${i + 1} needs a time of day`), { status: 400 });
+    return { days, time: p.time };
+  });
+}
+// a step that is already in the past (old leads) is scheduled for the next working slot instead of "overdue since March"
+const fresh = (planned, cfg, now) => (planned < now ? adj(now, cfg) : planned);
+export async function addStepsToExistingLeads(cfg) {
+  const now = new Date(), ops = [];
+  let leads = 0, steps = 0;
+  for await (const l of Lead.find({}, "ts fus d1Fus d2Fus").lean().cursor()) {
+    const $push = {};
+    const grow = (set, plan, base) => {
+      const cur = l[set] || [];
+      if (!cur.length || cur.length >= plan.length) return;
+      const closed = cur.some((f) => f.skipped); // auto-closed lead (Not interested / Wrong number): new steps stay closed
+      const slots = planFor(base, cfg, plan);
+      $push[set] = { $each: slots.slice(cur.length).map((x) => ({ planned: fresh(x.planned, cfg, now), ...(closed ? { skipped: true } : {}) })) };
+      steps += plan.length - cur.length;
+    };
+    grow("fus", cfg.plan, l.ts || now);
+    // attendee follow-ups were planned from the day the person was marked present = the day of their first step
+    for (const set of ["d1Fus", "d2Fus"]) {
+      const first = (l[set] || [])[0]?.planned;
+      if (first) grow(set, cfg.attPlan, new Date(+new Date(first) - (+cfg.attPlan[0].days || 0) * 864e5));
+    }
+    if (Object.keys($push).length) { ops.push({ updateOne: { filter: { _id: l._id }, update: { $push } } }); leads++; }
+    if (ops.length >= 500) await Lead.bulkWrite(ops.splice(0));
+  }
+  if (ops.length) await Lead.bulkWrite(ops);
+  return { leads, steps };
+}
 
 // ---------------------------------------------------------------------------
 // The ONE intake sheet (Google Sheet shared as "Anyone with the link: Viewer")
@@ -145,6 +194,8 @@ export async function readSheetRows(cfg) {
 
 const SYNC_ID = "sync";
 const saveSync = (v) => LeadConfig.findByIdAndUpdate(SYNC_ID, { v: { at: new Date(), ...v } }, { upsert: true }).catch(() => {});
+const logImport = (v) => LeadImportLog.create({ at: new Date(), ...v }).catch((e) => console.error("[leads] import log failed:", e.message));
+export const importLog = (limit = 100) => LeadImportLog.find().sort({ at: -1 }).limit(limit).lean();
 export const lastSync = async () => (await LeadConfig.findById(SYNC_ID).lean())?.v || null;
 
 // Level / Profession / City typed by callers in the app -> written into the same row of the Google Sheet.
@@ -169,9 +220,11 @@ export async function pushDirty() {
 export const pushSoon = () => pushDirty().catch((e) => console.error("[leads] sheet write-back failed (will retry):", e.message));
 
 let syncing = false;
-export async function syncIntake() {
+// by = who clicked it ({ name, email }); null for the automatic 5-minute run
+export async function syncIntake(by = null) {
   if (syncing) throw new Error("An import is already running — try again in a minute");
   syncing = true;
+  const who = { by: by?.name || by?.email || "Automatic", byEmail: by?.email || "", trigger: by ? "manual" : "auto" };
   try {
     const cfg = await getCfg();
     const rows = await readSheetRows(cfg), hi = rows.findIndex((r) => r.some((c) => /phone/i.test(c)));
@@ -181,36 +234,56 @@ export async function syncIntake() {
     const cell = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
 
     const data = rows.slice(hi + 1).map((r) => ({ r, phone: cell(r, ix.phone).replace(/\D/g, "") })).filter((x) => x.phone);
-    // one query for every existing lead instead of one per row
+    await backfillEmailKeys();
+    // one query for every existing lead instead of one per row — matched by phone AND by email
     const tens = [...new Set(data.map((x) => x.phone.slice(-10)))];
-    const existing = new Map();
+    const mails = [...new Set(data.map((x) => normEmail(cell(x.r, ix.email))).filter(Boolean))];
+    const existing = new Map(), existingMail = new Map();
+    const remember = (l) => { existing.set(l.phone10 || l.key.slice(-10), l); if (l.emailKey) existingMail.set(l.emailKey, l); };
     for (let i = 0; i < tens.length; i += 1000) {
       const part = tens.slice(i, i + 1000);
-      for (const l of await Lead.find({ $or: [{ phone10: { $in: part } }, { key: { $in: [...part, ...part.map((n) => "91" + n)] } }] }))
-        existing.set(l.phone10 || l.key.slice(-10), l);
+      for (const l of await Lead.find({ $or: [{ phone10: { $in: part } }, { key: { $in: [...part, ...part.map((n) => "91" + n)] } }] })) remember(l);
     }
+    for (let i = 0; i < mails.length; i += 1000)
+      for (const l of await Lead.find({ emailKey: { $in: mails.slice(i, i + 1000) } })) if (!existingMail.has(l.emailKey)) { existingMail.set(l.emailKey, l); if (!existing.has(l.phone10 || l.key.slice(-10))) existing.set(l.phone10 || l.key.slice(-10), l); }
+
     const pick = await picker();
-    let added = 0, updated = 0;
+    let added = 0, updated = 0, byEmailMatched = 0;
+    const touched = new Set(); // leads already handled in this import
     for (const { r, phone } of data) {
       const f = { name: cell(r, ix.name), email: cell(r, ix.email), utwDate: cell(r, ix.utw), level: cell(r, ix.lvl), profession: cell(r, ix.pro), city: cell(r, ix.city) };
-      const sheetAsg = cell(r, ix.asg), ten = phone.slice(-10), ex = existing.get(ten);
+      const sheetAsg = cell(r, ix.asg), ten = phone.slice(-10), mail = normEmail(f.email);
+      // same phone -> same lead; otherwise the same email -> same lead (its phone is then corrected from the sheet)
+      let ex = existing.get(ten), viaEmail = false;
+      if (!ex && mail && existingMail.has(mail)) {
+        ex = existingMail.get(mail); viaEmail = true;
+        // the same person typed twice with two phone numbers: the first row wins, so the number doesn't flip back and forth on every import
+        if (touched.has(ex)) continue;
+      }
       if (ex) {
-        // the sheet only fills / corrects fields — a blank cell never wipes what the app already has,
+        touched.add(ex);
+        // the sheet overwrites / corrects fields — a blank cell never wipes what the app already has,
         // and what a caller just typed in the app is never overwritten by an older sheet value
         Object.entries(f).forEach(([k, v]) => { if (v && !(ex.sheetDirty && ["level", "profession", "city"].includes(k))) ex[k] = v; });
+        if (viaEmail && ex.phone10 !== ten) ex.phone = phone;
         if (sheetAsg && !ex.locked) ex.assignedTo = sheetAsg;
-        if (ex.isModified()) { await ex.save(); updated++; }
+        if (ex.isModified()) { await ex.save(); updated++; if (viaEmail) byEmailMatched++; }
+        remember(ex); existing.set(ten, ex);
       } else {
         const ts = pdate(cell(r, ix.ts)) || new Date();
         const lead = await Lead.create({ ...f, key: phone, phone, ts, source: "sheet", assignedTo: sheetAsg || (cfg.autoAssign ? pick() : ""), fus: planFor(ts, cfg) });
-        existing.set(ten, lead);
+        remember(lead); touched.add(lead);
         added++;
       }
     }
-    await saveSync({ added, updated, rows: data.length, ok: true });
-    return { added, updated };
+    const res = { added, updated, byEmailMatched, rows: data.length, ok: true };
+    await saveSync(res);
+    // every click is logged; the silent 5-minute run only when it actually changed something
+    if (by || added || updated) await logImport({ ...who, ...res });
+    return { added, updated, byEmailMatched };
   } catch (e) {
     await saveSync({ ok: false, error: e.message });
+    await logImport({ ...who, added: 0, updated: 0, byEmailMatched: 0, rows: 0, ok: false, error: e.message });
     throw e;
   } finally {
     syncing = false;
@@ -293,57 +366,13 @@ export async function stats(user) {
 }
 
 // ---------------------------------------------------------------------------
-// Demo data (admin button in Settings) — leads only, never creates logins.
-// ---------------------------------------------------------------------------
-const rnd = (a) => a[Math.floor(Math.random() * a.length)];
-async function demoAtt(lead, cfg) {
-  for (const d of [1, 2]) if (lead["day" + d]) {
-    const k = "d" + d + "Fus";
-    lead[k] = planFor(new Date(+lead.ts + 864e5 * d), cfg, cfg.attPlan);
-    lead[k].forEach((f) => { if (f.planned < new Date() && Math.random() < 0.7) { f.actual = new Date(+f.planned + Math.random() * 36e5); f.status = rnd(cfg.statuses); } });
-    await lead.save();
-  }
-}
-export async function loadDemo() {
-  const cfg = await getCfg(), real = await callerNames(), callers = real.length ? real.slice(0, 4) : ["Demo A", "Demo B", "Demo C", "Demo D"];
-  const names = ["Shivani", "Naina", "Madhu", "Simant Kaur", "Shweta", "Rita", "Shubhangi", "Devanshi", "Shamreetha", "Dipti", "Jatin", "Pooja", "Nalini", "Ena", "Shreya", "Sonia", "Sipra", "Kanchan", "Priya", "Tanvi", "Isha", "Mahima", "Amisha", "Mitali", "Rajlaxmi", "Kamini", "Deepali", "Kirti", "Hiler", "Anita", "Meera", "Ritu", "Kavya", "Neha", "Pallavi", "Sana", "Tara", "Uma", "Vidya", "Yamini"];
-  await clearDemo();
-  const act = (lead, n, f) => LeadActivity.create({ key: lead.key, name: lead.name, caller: lead.assignedTo, step: n + 1, status: f.status, at: f.actual, by: "demo", delayMs: f.actual - f.planned, demo: true });
-  for (let i = 0; i < names.length; i++) {
-    const ts = new Date(); ts.setDate(ts.getDate() - Math.floor(i / 8)); ts.setHours(9 + (i % 4), 0, 0, 0);
-    const fus = planFor(ts, cfg); let prev = true;
-    for (const f of fus) {
-      if (prev && f.planned < new Date() && Math.random() < 0.7) {
-        f.actual = new Date(+f.planned + Math.random() * 3 * 36e5); f.status = rnd(cfg.statuses);
-        if (f.status === "Callback") f.callbackAt = new Date(Date.now() + 36e5 * (Math.random() * 30 - 5));
-      } else prev = false;
-    }
-    const conn = fus.some((f) => f.status === "Connected");
-    const lead = await Lead.create({ key: "99000" + (10000 + i), phone: "99000" + (10000 + i), ts, name: names[i], email: names[i].toLowerCase().replace(/ /g, "") + "@example.com", assignedTo: callers[i % callers.length], level: rnd(["Beginner", "Master", "NA"]), profession: rnd(["Teacher", "Homemaker", "Lawyer", "9-5 Job"]), city: rnd(["Noida", "Mumbai", "Bangalore", "Delhi", "Pune"]), day1: conn && Math.random() < 0.6, day2: conn && Math.random() < 0.3, source: "demo", fus });
-    await demoAtt(lead, cfg);
-    for (const [n, f] of fus.entries()) if (f.actual) await act(lead, n, f);
-  }
-  for (let k = 0; k < 160; k++) { // ~10 months of history so Reports has something to show
-    const ts = new Date(Date.now() - Math.random() * 300 * 864e5); ts.setHours(9 + (k % 4), 0, 0, 0);
-    const fus = planFor(ts, cfg), conn = Math.random() < 0.45;
-    fus.forEach((f, j) => { if (j === 0 || Math.random() < 0.6) { f.actual = new Date(+f.planned + Math.random() * 36e5); f.status = j === 0 && conn ? "Connected" : rnd(cfg.statuses); } });
-    const lead = await Lead.create({ key: "99000" + (20000 + k), phone: "99000" + (20000 + k), ts, name: names[k % names.length], assignedTo: callers[k % callers.length], city: rnd(["Noida", "Mumbai", "Delhi", "Pune"]), day1: conn && Math.random() < 0.6, day2: conn && Math.random() < 0.3, source: "demo", fus });
-    await demoAtt(lead, cfg);
-    for (const [n, f] of fus.entries()) if (f.actual) await act(lead, n, f);
-  }
-  return { leads: names.length + 160 };
-}
-export async function clearDemo() {
-  await Lead.deleteMany({ source: "demo" });
-  await LeadActivity.deleteMany({ demo: true });
-}
-
-// ---------------------------------------------------------------------------
 // Background jobs (started once from server.js)
 // ---------------------------------------------------------------------------
 export function startJobs() {
+  // the old demo feature is gone — sweep out any demo leads still left in the database
+  Lead.deleteMany({ source: "demo" }).then(() => LeadActivity.deleteMany({ demo: true })).catch(() => {});
   const timezone = process.env.TZ_NAME || "Asia/Kolkata";
   cron.schedule("55 23 * * *", () => snapshot().catch((e) => console.error("[leads] snapshot failed:", e.message)), { timezone }); // nightly snapshot, kept forever
   // every 5 minutes: write any pending Level / Profession / City back to the sheet, then import new morning leads
-  cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); });
+  cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); }); // (auto runs only reach the import log when they change something)
 }
