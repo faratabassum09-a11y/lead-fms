@@ -135,8 +135,6 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-sheet th.g1 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(46, 160, 120, 0.16), rgba(46, 160, 120, 0.16)); }
 .ld-sheet th.g2 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(224, 145, 43, 0.18), rgba(224, 145, 43, 0.18)); }
 .ld-sheet th.g3 { background-color: var(--panel-alt); background-image: linear-gradient(rgba(109, 79, 192, 0.16), rgba(109, 79, 192, 0.16)); }
-<<<<<<< HEAD
-=======
 
 /* ---- caller-friendly task cards: calm colours, no alarm, big tap targets ---- */
 .ld-actions-3 .ld-btn { padding: 9px 16px; font-size: 13.5px; }
@@ -159,4 +157,3 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-callout { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13.5px; margin-bottom: 12px; }
 .ld-callout.good { background: var(--good-bg); color: var(--good); }
 .ld-callout.bad { background: var(--bad-bg); color: var(--bad); }
->>>>>>> d52ed31 (Split Tasks: Today's Tasks for new leads, separate Follow-ups page for FU1/FU2/FU3)
