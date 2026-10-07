@@ -28,7 +28,7 @@ export default function Tasks({ view = "today" }) {
   const [lims, setLims] = useState({}); // how many cards each column shows
   if (!loaded || !cfg) return <PageLoader />;
   const calm = !admin, eod = endOfToday(), sod = new Date(); sod.setHours(0, 0, 0, 0);
-  const due = tasksOf(leads, who).filter((t) => new Date(t.f.planned) <= eod).sort((a, b) => new Date(a.f.planned) - new Date(b.f.planned));
+  const due = tasksOf(leads, who, cfg).filter((t) => new Date(t.f.planned) <= eod).sort((a, b) => new Date(a.f.planned) - new Date(b.f.planned));
   // "Today Follow-ups": every FU1 / FU2 / FU3 planned for today. "Delayed Follow-ups": planned on an earlier day and still pending.
   // Each page is laid out in one column per follow-up step.
   const followups = view === "followups";
@@ -122,8 +122,8 @@ export default function Tasks({ view = "today" }) {
       {!pool.length && <div className="ld-empty" style={{ marginTop: 14 }}>{doneMsg}</div>}
       {!!pool.length && !attendees && (
         <div className="ld-cols">
-          {/* FU1–FU3 always show; FU4 and later (added in Settings) appear as soon as one of them has someone to call */}
-          {fuCols(cfg, leads).filter(([set, i]) => i < 3 || colTasks([set, i]).length).map(([set, i, label, sub]) => <Column key={label} id={label} label={label} sub={sub} items={colTasks([set, i])} tone={"fu" + ((i % 3) + 1)} />)}
+          {/* one column per follow-up declared in Settings — add FU4 there and it appears here */}
+          {fuCols(cfg, leads).map(([set, i, label, sub]) => <Column key={label} id={label} label={label} sub={sub} items={colTasks([set, i])} tone={"fu" + ((i % 3) + 1)} />)}
         </div>
       )}
       {!!pool.length && attendees && (

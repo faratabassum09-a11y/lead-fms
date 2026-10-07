@@ -101,29 +101,42 @@ export function cleanPlan(plan, label) {
 const fresh = (planned, cfg, now) => (planned < now ? adj(now, cfg) : planned);
 export async function addStepsToExistingLeads(cfg) {
   const now = new Date(), ops = [];
-  let leads = 0, steps = 0;
+  let leads = 0, steps = 0, removed = 0;
   for await (const l of Lead.find({}, "ts fus d1Fus d2Fus").lean().cursor()) {
-    const $push = {};
-    const grow = (set, plan, base) => {
+    const $push = {}, $set = {};
+    const sync = (set, plan, base) => {
       const cur = l[set] || [];
-      if (!cur.length || cur.length >= plan.length) return;
+      if (!cur.length) return;
+      if (cur.length > plan.length) {
+        // a step was REMOVED in Settings: drop the pending steps beyond the plan (calls already made stay as history)
+        const keep = cur.filter((f, i) => i < plan.length || f.actual);
+        if (keep.length !== cur.length) { $set[set] = keep; removed += cur.length - keep.length; }
+        return;
+      }
+      if (cur.length === plan.length) return;
       const closed = cur.some((f) => f.skipped); // auto-closed lead (Not interested / Wrong number): new steps stay closed
       const slots = planFor(base, cfg, plan);
       $push[set] = { $each: slots.slice(cur.length).map((x) => ({ planned: fresh(x.planned, cfg, now), ...(closed ? { skipped: true } : {}) })) };
       steps += plan.length - cur.length;
     };
-    grow("fus", cfg.plan, l.ts || now);
+    sync("fus", cfg.plan, l.ts || now);
     // attendee follow-ups were planned from the day the person was marked present = the day of their first step
     for (const set of ["d1Fus", "d2Fus"]) {
       const first = (l[set] || [])[0]?.planned;
-      if (first) grow(set, cfg.attPlan, new Date(+new Date(first) - (+cfg.attPlan[0].days || 0) * 864e5));
+      if (first) sync(set, cfg.attPlan, new Date(+new Date(first) - (+cfg.attPlan[0].days || 0) * 864e5));
     }
-    if (Object.keys($push).length) { ops.push({ updateOne: { filter: { _id: l._id }, update: { $push } } }); leads++; }
+    const update = {};
+    if (Object.keys($push).length) update.$push = $push;
+    if (Object.keys($set).length) update.$set = $set;
+    if (Object.keys(update).length) { ops.push({ updateOne: { filter: { _id: l._id }, update } }); leads++; }
     if (ops.length >= 500) await Lead.bulkWrite(ops.splice(0));
   }
   if (ops.length) await Lead.bulkWrite(ops);
-  return { leads, steps };
+  return { leads, steps, removed };
 }
+
+// how many follow-ups Settings declares for a track — anything beyond that is never shown or counted
+export const planLen = (cfg, set) => (set === "fus" ? cfg.plan : cfg.attPlan)?.length ?? Infinity;
 
 // ---------------------------------------------------------------------------
 // The ONE intake sheet (Google Sheet shared as "Anyone with the link: Viewer")
@@ -311,7 +324,7 @@ export async function board() {
   for (const l of leads) {
     const x = r(l.assignedTo); x.leads++; if (l.ts >= sod) newToday++;
     ["fus", "d1Fus", "d2Fus"].forEach((set) => (l[set] || []).forEach((f, i, arr) => {
-      if (f.actual || f.skipped || !f.planned || (i && !arr[i - 1].actual)) return;
+      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual)) return;
       const y = r((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo), p = new Date(f.planned);
       if (p <= eod) y.due++;
       if (p < now) {
@@ -347,14 +360,14 @@ export async function reports(user, months) {
 
 // Light numbers for the app chooser card.
 export async function stats(user) {
-  const now = new Date(), eod = endOfDay(now);
+  const cfg = await getCfg(), now = new Date(), eod = endOfDay(now);
   const leads = await Lead.find(mineFilter(user), "assignedTo d1Assigned d2Assigned fus d1Fus d2Fus").lean();
   const me = leadCallerName(user).toLowerCase();
   let due = 0, overdue = 0, unassigned = 0;
   for (const l of leads) {
     if (!l.assignedTo) unassigned++;
     ["fus", "d1Fus", "d2Fus"].forEach((set) => (l[set] || []).forEach((f, i, arr) => {
-      if (f.actual || f.skipped || !f.planned || (i && !arr[i - 1].actual)) return;
+      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual)) return;
       const who = ((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo || "").toLowerCase();
       if (!user.leadAdmin && who !== me) return;
       const p = new Date(f.planned);
@@ -371,6 +384,8 @@ export async function stats(user) {
 export function startJobs() {
   // the old demo feature is gone — sweep out any demo leads still left in the database
   Lead.deleteMany({ source: "demo" }).then(() => LeadActivity.deleteMany({ demo: true })).catch(() => {});
+  // make existing leads match the plan saved in Settings (removes stray FU4+ that Settings no longer declares)
+  getCfg().then(addStepsToExistingLeads).catch((e) => console.error("[leads] plan sync failed:", e.message));
   const timezone = process.env.TZ_NAME || "Asia/Kolkata";
   cron.schedule("55 23 * * *", () => snapshot().catch((e) => console.error("[leads] snapshot failed:", e.message)), { timezone }); // nightly snapshot, kept forever
   // every 5 minutes: write any pending Level / Profession / City back to the sheet, then import new morning leads

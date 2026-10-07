@@ -28,9 +28,11 @@ export const stageWho = (l, set) =>
   ((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo || "").toLowerCase();
 
 // every follow-up that is actionable right now (not done, not closed, previous one done)
-export const tasksOf = (leads, who) =>
+// (steps beyond what Settings declares — e.g. an old FU4 — are never actionable)
+export const planLen = (cfg, set) => (set === "fus" ? cfg?.plan : cfg?.attPlan)?.length ?? Infinity;
+export const tasksOf = (leads, who, cfg) =>
   leads
-    .flatMap((l) => SETS.flatMap(([set, lb]) => (l[set] || []).map((f, i) => ({ l, f, i, set, lb }))))
+    .flatMap((l) => SETS.flatMap(([set, lb]) => (l[set] || []).slice(0, planLen(cfg, set)).map((f, i) => ({ l, f, i, set, lb }))))
     .filter((t) => t.f.planned && !t.f.actual && !t.f.skipped && (t.i === 0 || t.l[t.set][t.i - 1].actual) && (!who || stageWho(t.l, t.set) === who.toLowerCase()));
 
 export const wa = (p, t = "") => "https://wa.me/" + (p.length === 10 ? "91" + p : p) + (t ? "?text=" + encodeURIComponent(t) : "");
@@ -48,9 +50,9 @@ export const isDueToday = (t) => {
 export const MAX_FU = 10;
 const ORD = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 export const stepName = (i) => (ORD[i] || `Call ${i + 1}`) + " call";
-// how many FU columns to show: what Settings plans, or more if some lead already has more steps
+// how many FU columns to show: exactly what Settings declares (add one there -> a new column appears everywhere)
 export const fuCount = (cfg, leads = [], set = "fus", plan = set === "fus" ? cfg?.plan : cfg?.attPlan) =>
-  Math.min(MAX_FU, Math.max(plan?.length || 0, ...leads.map((l) => (l[set] || []).length)));
+  Math.min(MAX_FU, plan?.length || 0);
 // FU1 / FU2 / ... columns for the lead-qualification calls; Day 1 / Day 2 attendee calls get their own block
 export const fuCols = (cfg, leads) => Array.from({ length: fuCount(cfg, leads) }, (_, i) => ["fus", i, "FU" + (i + 1), stepName(i)]);
 export const ATT_COLS = [["d1Fus", "Day 1 attendees"], ["d2Fus", "Day 2 attendees"]];

@@ -31,13 +31,13 @@ function Form({ cfg, load, sync, toast }) {
   const edit = (key, i, k, v) => setC({ ...c, [key]: c[key].map((p, j) => (j === i ? { ...p, [k]: v } : p)) });
   const addStep = (key) => setC({ ...c, [key]: [...c[key], { days: (+c[key][c[key].length - 1]?.days || 0) + 1, time: c[key][c[key].length - 1]?.time || "11:00" }] });
   const dropStep = (key) => setC({ ...c, [key]: c[key].slice(0, -1) });
-  const grew = c.plan.length > cfg.plan.length || c.attPlan.length > cfg.attPlan.length;
+  const grew = c.plan.length !== cfg.plan.length || c.attPlan.length !== cfg.attPlan.length;
   const full = () => ({ ...c, statuses: csv(st), retryStatuses: csv(rs), closeStatuses: csv(cs), applyToExisting: toAll });
   const save = async (after) => {
     setSaving(true);
     try {
       const r = await api.ldSaveConfig(full()); await load();
-      toast(r.addedToLeads ? `Settings saved — new follow-up added to ${r.addedToLeads} existing leads` : "Settings saved", "good");
+      toast(r.addedToLeads ? `Settings saved — follow-ups updated on ${r.addedToLeads} existing leads` : "Settings saved", "good");
       if (after) await after();
     }
     catch (e) { toast(e.message, "bad"); }

@@ -60,16 +60,16 @@ export default function LeadsApp() {
 function Shell() {
   const { user, logout, isLeadAdmin: admin } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { leads, who, now, busy, sync } = useLeads();
+  const { leads, who, now, busy, sync, cfg } = useLeads();
   useSlashToFocusSearch();
   useEffect(() => { const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1200)); idle(prefetchPages); }, []);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ld-sidebar-collapsed") === "1");
   const [mobileOpen, setMobileOpen] = useState(false);
   const toggleCollapsed = () => setCollapsed((v) => { localStorage.setItem("ld-sidebar-collapsed", v ? "0" : "1"); return !v; });
 
-  const overdue = tasksOf(leads, who).filter((t) => new Date(t.f.planned) < now).length;
+  const overdue = tasksOf(leads, who, cfg).filter((t) => new Date(t.f.planned) < now).length;
   const eod = new Date(now); eod.setHours(23, 59, 59, 999);
-  const pending = tasksOf(leads, who).filter((t) => new Date(t.f.planned) <= eod);
+  const pending = tasksOf(leads, who, cfg).filter((t) => new Date(t.f.planned) <= eod);
   const fuOnly = pending.filter((t) => t.set === "fus"); // FU1 / FU2 / FU3; Day 1 / Day 2 attendee calls have their own page
   const todayCount = fuOnly.filter(isDueToday).length, followCount = fuOnly.length - todayCount, attendCount = pending.length - fuOnly.length;
   const links = [

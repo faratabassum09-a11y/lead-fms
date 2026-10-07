@@ -39,10 +39,10 @@ router.put("/config", adminOnly, wrap(async (req, res) => {
   if (next.sheetUrl && !/^https:\/\/script\.google(usercontent)?\.com\//.test(next.sheetUrl)) throw fail("The Google Script link should start with https://script.google.com/…");
   if (!Array.isArray(next.statuses) || !next.statuses.length) throw fail("Add at least one call status");
   await S.setCfg(next);
-  // a follow-up was ADDED -> give it to every existing lead (and so to Today / Delayed / Attendee Follow-ups)
-  const grew = next.plan.length > prev.plan.length || next.attPlan.length > prev.attPlan.length;
-  const added = grew && applyToExisting ? await S.addStepsToExistingLeads(await S.getCfg()) : null;
-  res.json({ ...(await S.getCfg()), ...(added ? { addedToLeads: added.leads, addedSteps: added.steps } : {}) });
+  // a follow-up was ADDED or REMOVED -> every existing lead follows the new plan (and so to Today / Delayed / Attendee Follow-ups)
+  const changed = next.plan.length !== prev.plan.length || next.attPlan.length !== prev.attPlan.length;
+  const added = changed && applyToExisting ? await S.addStepsToExistingLeads(await S.getCfg()) : null;
+  res.json({ ...(await S.getCfg()), ...(added ? { addedToLeads: added.leads, addedSteps: added.steps, removedSteps: added.removed } : {}) });
 }));
 
 // the chooser card on the Hub
