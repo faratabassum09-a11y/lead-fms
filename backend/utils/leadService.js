@@ -578,6 +578,7 @@ export async function stats(user) {
 // Background jobs (started once from server.js)
 // ---------------------------------------------------------------------------
 export function startJobs() {
+  freshStartOnce().catch((e) => console.error("[leads] fresh start failed:", e.message));
   // the old demo feature is gone — sweep out any demo leads still left in the database
   Lead.deleteMany({ source: "demo" }).then(() => LeadActivity.deleteMany({ demo: true })).catch(() => {});
   // make existing leads match the plan saved in Settings (removes stray FU4+ that Settings no longer declares)
@@ -664,4 +665,14 @@ export async function clearDelayed() {
   }
   bustProgress();
   return { leads: calls };
+}
+
+// One-time "fresh start": the first time this version runs, close every old pending call so Delayed Follow-ups starts at 0.
+// From then on, calls that are missed on a given day become "delayed" the next day as usual.
+export async function freshStartOnce() {
+  const saved = (await LeadConfig.findById("main").lean())?.v || {};
+  if (saved.freshStartAt) return;
+  const r = await clearDelayed();
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.freshStartAt": new Date() } }, { upsert: true });
+  console.log(`[leads] fresh start: closed ${r.leads} old pending calls`);
 }
