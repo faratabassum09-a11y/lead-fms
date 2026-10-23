@@ -31,7 +31,7 @@ router.get("/config", wrap(async (req, res) => {
 }));
 router.put("/config", adminOnly, wrap(async (req, res) => {
   const b = req.body || {}, applyToExisting = b.applyToExisting !== false;
-  delete b.lastSync; delete b.applyToExisting;
+  delete b.lastSync; delete b.applyToExisting; delete b.share; // the daily share has its own endpoint
   const prev = await S.getCfg(), next = { ...prev, ...b };
   next.plan = S.cleanPlan(next.plan, "Lead follow-ups");
   next.attPlan = S.cleanPlan(next.attPlan, "Attendee follow-ups");
@@ -56,6 +56,9 @@ router.get("/performance", adminOnly, wrap(async (req, res) => res.json(await S.
 router.post("/clear-delayed", adminOnly, wrap(async (_req, res) => res.json(await S.clearDelayed())));
 router.get("/progress", wrap(async (_req, res) => res.json(await S.progress())));
 // "Share out again" in Settings -> Automatic assignment
+router.get("/share", adminOnly, wrap(async (_req, res) => res.json(await S.getShare())));
+router.put("/share", adminOnly, wrap(async (req, res) => res.json(await S.saveShare(req.body))));
+router.post("/assign/spread-today", adminOnly, wrap(async (req, res) => res.json(await S.spreadToday(req.body?.names))));
 router.post("/assign/reshare", adminOnly, wrap(async (req, res) => res.json(await S.reshare(String(req.body?.queue || "")))));
 
 // ---------- intake sheet ----------

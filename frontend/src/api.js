@@ -111,6 +111,9 @@ export const api = {
   ldProgress: () => request("/progress"),
   ldPerformance: (from, to) => request(`/performance?from=${from}&to=${to}`),
   ldHistory: (id) => request(`/leads/${id}/history`),
+  ldShare: () => request("/share"),
+  ldSaveShare: (data) => request("/share", { method: "PUT", body: JSON.stringify(data) }),
+  ldSpreadToday: (names) => request("/assign/spread-today", { method: "POST", body: JSON.stringify({ names }) }),
   ldReshare: (queue) => request("/assign/reshare", { method: "POST", body: JSON.stringify({ queue }) }),
   ldMissingLogins: () => request("/team/missing"),
 

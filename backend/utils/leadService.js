@@ -38,6 +38,8 @@ export const DEF = {
   // Automatic assignment (Settings -> Automatic assignment). One block per "column":
   //   new = new leads (Lead Qualification), d1 / d2 = the calls after Day 1 / Day 2.
   // mode: "off" | "manual" | "auto". people: [{ name, on, share, present }]
+  // Daily auto-share (Settings -> Share today's calls equally): auto on/off, the time, who is in the team, who is off today.
+  share: { auto: false, time: "09:00", people: null, off: [], offDate: "", lastRun: "", lastResult: null },
   assign: {
     keepSame: true, // Day 1 / Day 2 calls stay with the lead's own caller when that caller is ticked there too
     queues: { new: { mode: "auto", people: [] }, d1: { mode: "off", people: [] }, d2: { mode: "off", people: [] } },
@@ -578,6 +580,7 @@ export async function stats(user) {
 // Background jobs (started once from server.js)
 // ---------------------------------------------------------------------------
 export function startJobs() {
+  shareTick(); // catch up if the server was asleep at the daily share time
   freshStartOnce().catch((e) => console.error("[leads] fresh start failed:", e.message));
   // the old demo feature is gone — sweep out any demo leads still left in the database
   Lead.deleteMany({ source: "demo" }).then(() => LeadActivity.deleteMany({ demo: true })).catch(() => {});
@@ -586,7 +589,7 @@ export function startJobs() {
   const timezone = process.env.TZ_NAME || "Asia/Kolkata";
   cron.schedule("55 23 * * *", () => snapshot().catch((e) => console.error("[leads] snapshot failed:", e.message)), { timezone }); // nightly snapshot, kept forever
   // every 5 minutes: write any pending Level / Profession / City back to the sheet, then import new morning leads
-  cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); }); // (auto runs only reach the import log when they change something)
+  cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); await shareTick(); }); // (auto runs only reach the import log when they change something)
 }
 
 
@@ -675,4 +678,118 @@ export async function freshStartOnce() {
   const r = await clearDelayed();
   await LeadConfig.findByIdAndUpdate("main", { $set: { "v.freshStartV2": new Date() } }, { upsert: true });
   console.log(`[leads] fresh start: closed ${r.leads} old pending calls`);
+}
+
+// ---------------------------------------------------------------------------
+// "Share today's calls equally": every call still to be made today is dealt out evenly among the people who are working today.
+// Someone who already holds their fair share keeps their calls; the extra calls (and those of people who are off today) move
+// to whoever has the fewest. Leads an admin assigned by hand keep their caller (their calls still count towards that person's load).
+// ---------------------------------------------------------------------------
+export async function spreadToday(names) {
+  const people = [...new Set((Array.isArray(names) ? names : []).map((n) => String(n || "").trim()).filter(Boolean))];
+  if (!people.length) throw Object.assign(new Error("Tick at least one person who is working today"), { status: 400 });
+  const cfg = await getCfg(), now = new Date(), sod = startOfDay(now), eod = endOfDay(now);
+  const low = new Map(people.map((n) => [n.toLowerCase(), n])), load = new Map(people.map((n) => [n, 0]));
+  const open = { $elemMatch: { actual: null, skipped: { $ne: true }, planned: { $gte: sod, $lte: eod } } };
+  const leads = await Lead.find({ $or: [{ fus: open }, { d1Fus: open }, { d2Fus: open }] }, "assignedTo d1Assigned d2Assigned locked fus d1Fus d2Fus").lean();
+  const units = [], fixed = [];
+  for (const l of leads)
+    for (const set of ["fus", "d1Fus", "d2Fus"]) {
+      const hit = (l[set] || []).some((f, i, arr) => !f.actual && !f.skipped && f.planned && i < planLen(cfg, set) && new Date(f.planned) >= sod && new Date(f.planned) <= eod && (!i || arr[i - 1].actual || arr[i - 1].skipped));
+      if (!hit) continue;
+      const field = set === "d1Fus" ? "d1Assigned" : set === "d2Fus" ? "d2Assigned" : "assignedTo";
+      const owner = (l[field] || l.assignedTo || "").trim();
+      (set === "fus" && l.locked ? fixed : units).push({ l, set, field, owner });
+    }
+  for (const u of fixed) { const k = low.get(u.owner.toLowerCase()); if (k) load.set(k, load.get(k) + 1); }
+  const total = units.length + fixed.filter((u) => low.has(u.owner.toLowerCase())).length, target = Math.ceil(total / people.length);
+  const move = [];
+  for (const u of units) { // keep calls with their current owner while that person is under their fair share
+    const k = low.get(u.owner.toLowerCase());
+    if (k && load.get(k) < target) { load.set(k, load.get(k) + 1); u.to = k; } else move.push(u);
+  }
+  for (const u of move) {
+    const k = [...load.entries()].sort((a, b) => a[1] - b[1])[0][0];
+    load.set(k, load.get(k) + 1); u.to = k;
+  }
+  const ops = []; let moved = 0;
+  for (const u of units) {
+    if (u.to.toLowerCase() === u.owner.toLowerCase()) continue;
+    moved++;
+    const by = u.set === "fus" ? { assignedBy: "auto", assignedAt: now } : { [u.set === "d1Fus" ? "d1By" : "d2By"]: "auto" };
+    ops.push({ updateOne: { filter: { _id: u.l._id }, update: { $set: { [u.field]: u.to, ...by },
+      $push: { trail: trailOp("assign", `${u.set === "fus" ? "" : u.set === "d1Fus" ? "Day 1 calls " : "Day 2 calls "}${u.owner ? `moved from ${u.owner} to ${u.to}` : `assigned to ${u.to}`} (today's calls shared equally)`) } } } });
+    if (ops.length >= 500) await Lead.bulkWrite(ops.splice(0));
+  }
+  if (ops.length) await Lead.bulkWrite(ops);
+  bustProgress();
+  return { total, moved, perPerson: Object.fromEntries(load) };
+}
+
+// ---------------------------------------------------------------------------
+// Daily auto-share. Set once in Settings: who is in the team, what time, on/off. Every day at that time (and as soon as the
+// server is awake if it missed it) today's calls are shared equally among the team minus anyone marked "off today".
+// "Off today" clears itself at midnight. The same list also drives who receives new leads (Automatic assignment).
+// ---------------------------------------------------------------------------
+const dayKey = () => dateKey(new Date());
+async function callerList() {
+  const users = await User.find({ active: { $ne: false }, role: { $ne: "admin" } }).lean(), seen = new Set();
+  return users.map(leadCallerName).filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase())).sort((a, b) => a.localeCompare(b));
+}
+const canon = (arr, callers) => {
+  const m = new Map(callers.map((c) => [c.toLowerCase(), c]));
+  return [...new Set((Array.isArray(arr) ? arr : []).map((n) => m.get(String(n || "").trim().toLowerCase())).filter(Boolean))];
+};
+export async function getShare() {
+  const cfg = await getCfg(), s = { ...DEF.share, ...cfg.share }, callers = await callerList();
+  return { auto: !!s.auto, time: s.time || "09:00", callers, people: s.people ? canon(s.people, callers) : callers, off: s.offDate === dayKey() ? canon(s.off, callers) : [], lastRun: s.lastRun, lastResult: s.lastResult, today: dayKey() };
+}
+// keep "Automatic assignment" (new leads) in step: team members take part, people off today are not present
+async function applyShareToAssign(st) {
+  const cur = (await getCfg()).assign || DEF.assign, queues = { ...cur.queues };
+  const people = st.callers.map((name) => ({ name, on: st.people.includes(name), share: 1, present: !st.off.includes(name) }));
+  for (const k of QUEUES) if (k === "new" || queues[k]?.mode === "auto") queues[k] = { mode: "auto", people: people.map((p) => ({ ...p })) };
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.assign": cleanAssign({ ...cur, queues }) } }, { upsert: true });
+}
+export async function saveShare(b = {}) {
+  const prev = await getShare(), callers = prev.callers;
+  const next = {
+    auto: b.auto === undefined ? prev.auto : !!b.auto,
+    time: /^\d{2}:\d{2}$/.test(b.time || "") ? b.time : prev.time,
+    people: b.people ? canon(b.people, callers) : prev.people,
+    off: b.off ? canon(b.off, callers) : prev.off,
+  };
+  const cfg = await getCfg(), old = { ...DEF.share, ...cfg.share };
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.share": { ...old, ...next, offDate: dayKey() } } }, { upsert: true });
+  await applyShareToAssign({ callers, ...next });
+  if (b.runNow) await runShare();
+  return getShare();
+}
+export async function runShare() {
+  const st = await getShare(), working = st.people.filter((n) => !st.off.includes(n));
+  if (!working.length) throw Object.assign(new Error("Nobody is in the team today — tick at least one person"), { status: 400 });
+  const r = await spreadToday(working);
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.share.lastRun": dayKey(), "v.share.lastResult": { at: new Date(), moved: r.moved, total: r.total } } }, { upsert: true });
+  console.log(`[leads] daily share: ${r.total} calls among ${working.length} people, ${r.moved} moved`);
+  return r;
+}
+let shareBusy = false;
+export async function shareTick() {
+  if (shareBusy) return;
+  shareBusy = true;
+  try {
+    const cfg = await getCfg(), s = { ...DEF.share, ...cfg.share }, now = new Date(), today = dateKey(now);
+    if (s.offDate && s.offDate !== today) { // a new day: everyone is back
+      await LeadConfig.findByIdAndUpdate("main", { $set: { "v.share.off": [], "v.share.offDate": today } }, { upsert: true });
+      await applyShareToAssign(await getShare());
+    }
+    if (!s.auto || s.lastRun === today) return;
+    const l = L(now), [h, m] = hm(s.time || "09:00");
+    if (cfg.skipSunday && l.getUTCDay() === 0) return;
+    if (l.getUTCHours() * 60 + l.getUTCMinutes() < h * 60 + m) return;
+    const st = await getShare();
+    if (!st.people.some((n) => !st.off.includes(n))) return;
+    await runShare();
+  } catch (e) { console.error("[leads] daily share failed:", e.message); }
+  finally { shareBusy = false; }
 }
