@@ -68,7 +68,7 @@ npm run seed -- --reset   # re-import only the leads that came from the import
 
 | Typed by the morning person | Filled by the website |
 |---|---|
-| Timestamp · Lead Name · Lead Email · Lead Phone · UTW Date · Assigned To | Level · Profession · City |
+| Timestamp · Lead Name · Lead Email · Lead Phone · UTW Date · Assigned To · **Workshop Name** | Level · Profession · City |
 
 1. **One-time connection** (Settings → *Google Sheet ↔ website*): generate a secret key → save → *Copy Apps Script* →
    in the sheet open *Extensions → Apps Script*, paste, run `setupSheet` once (it sets up **every lead tab**), *Deploy → Web app* (Execute as *Me*,
@@ -82,6 +82,28 @@ npm run seed -- --reset   # re-import only the leads that came from the import
    Level / Profession / City are written back to the **same row** of the Google Sheet within seconds
    (failed write-backs retry every 5 minutes; what a caller typed is never overwritten by an older sheet value).
 4. Admins use the **Daily Board**, **Reports** (CSV export), bulk re-assign, attendance and Settings.
+
+### Workshops
+Type the workshop in the sheet's **Workshop Name** column. The first time a new name appears, a filter chip for it shows up on
+Today / Delayed / Attendee Follow-ups, Leads, Attendance and Dashboard (and in the Daily Reports "By workshop" table). The
+workshop is shown on every follow-up card, spelled the way it was first typed ("Delhi Workshop" = "delhi  workshop").
+After updating `Code.gs` run `setupSheet` once (adds the column) and **Deploy → Manage deployments → edit → New version**.
+
+### Lead history drawer
+Click a lead's name anywhere: a side drawer shows the progress (FU1…FUn · Day 1 · Day 2), **who it is assigned to and how**
+(automatic / from the sheet / by an admin), the lead's details, the workshop (admins can edit it and reassign the lead) and one
+timeline — came in, assigned, attendance, details changed, and every call ever made with its outcome, note and delay.
+
+### Automatic assignment (Settings)
+Three columns — **New leads**, **Day 1 attendees**, **Day 2 attendees** — each **Off / Manual / Auto**. In Auto: tick who takes
+part, give each a **Share** (weight) and a **Present** switch (un-tick for leave). *Share out again* re-deals the open work of
+that column by the ratio; *Copy this to the other columns* copies the setup. Leads an admin assigned by hand are never moved.
+Ratios are kept fair per day, so a person who was away is not flooded when they return.
+
+### Live team race (Today Follow-ups)
+Everyone — callers and admins — sees every person's name with a bar that fills as they finish today's calls (calls done ÷ calls
+done + still waiting), a rank, and "you are #2, 3 calls behind …". Refreshes every 15 s and instantly after you save a call.
+It shows no phone numbers or lead details.
 
 ### Caller view (Today Follow-ups)
 Callers get a calm screen: a greeting, a small batch of people to call, and only three buttons — **Call**, **WhatsApp**,
@@ -99,7 +121,10 @@ auto-close (Not interested / Wrong number cancels the rest), overdue escalation 
 nightly snapshot kept forever. Follow-up times, working hours and "today" are in **India time**
 (`TZ_OFFSET_MIN=330`) even when the server runs in UTC.
 
-**Settings → Import log** lists every sheet import: when, who, and how many new / updated leads.
+**Settings → Import log** lists every sheet import: when, who, and how many new / updated leads. The automatic import
+**retries up to 3 times** when Google answers with an error page or drops the connection, and a failure shows Google's real
+message (HTTP status + text). While Google stays down the same failure is logged once, and a “working again” line is added
+when it recovers. `GET /team/missing` (Team page) lists caller names that have leads but no login yet.
 
 ## Deploying (same as the Reminder List app)
 
@@ -113,5 +138,5 @@ nightly snapshot kept forever. Follow-up times, working hours and "today" are in
 All under `/api`, JSON, `Authorization: Bearer <token>`.
 `POST /auth/login` · `GET /auth/me` · `PUT /auth/me` · `POST /auth/change-password` ·
 `GET|POST /leads` · `PATCH /leads/:id` · `PATCH /leads/:id/fu/:n` · `POST /leads/bulk-assign` · `POST /attendance` ·
-`GET /activity` · `GET /reports?months=` · `GET /config` · `PUT /config` (admin) · `POST /sync` (admin) ·
+`GET /activity` · `GET /progress` · `GET /leads/:id/history` · `POST /assign/reshare` (admin) · `GET /reports?months=` · `GET /config` · `PUT /config` (admin) · `POST /sync` (admin) ·
 `GET /today`, `GET /daily`, `POST /snapshot` (admin) · `GET|POST|PUT|DELETE /team` (admin) · `GET /import-log` (admin).

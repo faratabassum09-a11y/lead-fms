@@ -19,7 +19,7 @@ export default function Reports() {
   return (
     <div className="page">
       <PageHeader title={admin ? "Reports" : "My Reports"} subtitle="Every lead, call and note is stored permanently — look back as far as you like"
-        meta={r && <button type="button" className="ld-btn" onClick={() => downloadCsv("lead-report.csv", [["Month", "Leads", "Contacted", "Connected", "Day1", "Day2", "Calls"], ...r.months.map((x) => [x.month, x.leads, x.contacted, x.connected, x.day1, x.day2, x.calls])])}>⬇ Export CSV</button>} />
+        meta={r && <button type="button" className="ld-btn" onClick={() => downloadCsv("lead-report.csv", [["Month", "Leads", "Contacted", "Connected", "Day1", "Day2", "Calls"], ...r.months.map((x) => [x.month, x.leads, x.contacted, x.connected, x.day1, x.day2, x.calls]), [], ["Workshop", "Leads", "Contacted", "Connected", "Day1", "Day2", "Calls"], ...(r.workshops || []).map((x) => [x.workshop, x.leads, x.contacted, x.connected, x.day1, x.day2, x.calls])])}>⬇ Export CSV</button>} />
       <div className="range-pills" role="tablist" aria-label="Report period">
         {[[1, "This month"], [3, "Last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "All time"]].map(([v, t]) => (
           <button key={v} type="button" role="tab" aria-selected={m === v} className={"range-pill" + (m === v ? " range-pill-active" : "")} onClick={() => setM(v)}>{t}</button>
@@ -54,6 +54,14 @@ export default function Reports() {
               <tbody>{r.months.map((x) => <tr key={x.month}><td><b>{lab(x.month)}</b></td><td>{x.leads}</td><td>{x.contacted}</td><td>{x.connected}</td><td>{pc(x.connected, x.leads)}</td><td>{x.day1}</td><td>{x.day2}</td><td>{x.calls}</td></tr>)}</tbody>
             </table></div>
           </Panel>
+          {r.workshops?.some((x) => x.workshop !== "No workshop") && (
+            <Panel title="By workshop">
+              <div className="table-wrap ld-flush"><table className="table">
+                <thead><tr><th>Workshop</th><th>Leads</th><th>Calls</th><th>Contacted</th><th>Connected</th><th>Connect %</th><th>Day 1</th><th>Day 2</th></tr></thead>
+                <tbody>{r.workshops.map((x) => <tr key={x.workshop}><td><b>{x.workshop}</b></td><td>{x.leads}</td><td>{x.calls}</td><td>{x.contacted}</td><td>{x.connected}</td><td>{pc(x.connected, x.leads)}</td><td>{x.day1}</td><td>{x.day2}</td></tr>)}</tbody>
+              </table></div>
+            </Panel>
+          )}
           <Panel title="By caller">
             <div className="table-wrap ld-flush"><table className="table">
               <thead><tr><th>Caller</th><th>Leads</th><th>Calls</th><th>Connected</th><th>Connect %</th><th>Day 1</th><th>Day 2</th></tr></thead>
