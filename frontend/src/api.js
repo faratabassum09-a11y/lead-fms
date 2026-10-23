@@ -107,6 +107,10 @@ export const api = {
   ldSnapshot: () => request("/snapshot", { method: "POST" }),
   ldReports: (months) => request(`/reports?months=${months}`),
   ldCallers: () => request("/callers"),
+  ldProgress: () => request("/progress"),
+  ldHistory: (id) => request(`/leads/${id}/history`),
+  ldReshare: (queue) => request("/assign/reshare", { method: "POST", body: JSON.stringify({ queue }) }),
+  ldMissingLogins: () => request("/team/missing"),
 
   // ---- team (admin) ----
   ldTeam: () => request("/team"),

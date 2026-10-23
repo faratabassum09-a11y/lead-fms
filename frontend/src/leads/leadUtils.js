@@ -35,6 +35,28 @@ export const tasksOf = (leads, who, cfg) =>
     .flatMap((l) => SETS.flatMap(([set, lb]) => (l[set] || []).slice(0, planLen(cfg, set)).map((f, i) => ({ l, f, i, set, lb }))))
     .filter((t) => t.f.planned && !t.f.actual && !t.f.skipped && (t.i === 0 || t.l[t.set][t.i - 1].actual) && (!who || stageWho(t.l, t.set) === who.toLowerCase()));
 
+// the person a follow-up belongs to, as they are spelled on the lead ("Unassigned" when nobody has it yet)
+export const ownerOf = (l, set) => (set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo || "Unassigned";
+// "just now" / "5 min ago" / "2 h ago"
+export const ago = (d, now = new Date()) => {
+  if (!d) return "";
+  const m = Math.max(0, Math.round((now - new Date(d)) / 6e4));
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.floor(m / 60)} h ago` : fmt(d);
+};
+export const NO_WS = "__none"; // the "no workshop" filter
+
+// whole calendar days between a planned time and today (1 = yesterday) — "how long has this been waiting"
+export const daysAgo = (planned, today = new Date()) => {
+  const a = new Date(today), p = new Date(planned);
+  a.setHours(0, 0, 0, 0); p.setHours(0, 0, 0, 0);
+  return Math.round((a - p) / 864e5);
+};
+// Delayed Follow-ups are triaged by how long they have waited; Today Follow-ups by "due now" vs "later today"
+export const DELAY_BUCKETS = [["1", "Yesterday", (d) => d <= 1], ["2-3", "2–3 days", (d) => d >= 2 && d <= 3], ["4-7", "4–7 days", (d) => d >= 4 && d <= 7], ["8+", "Over a week", (d) => d >= 8]];
+export const TODAY_BUCKETS = [["now", "Due now"], ["later", "Later today"]];
+export const bucketOf = (t, now, delayed) => (delayed ? (DELAY_BUCKETS.find(([, , fn]) => fn(daysAgo(t.f.planned, now))) || DELAY_BUCKETS[3])[0] : new Date(t.f.planned) <= now ? "now" : "later");
+export const shortDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+
 export const wa = (p, t = "") => "https://wa.me/" + (p.length === 10 ? "91" + p : p) + (t ? "?text=" + encodeURIComponent(t) : "");
 export const waText = (l, cfg) => (cfg?.waTemplate || "").replace("{name}", l.name || "").replace("{caller}", l.assignedTo || "");
 

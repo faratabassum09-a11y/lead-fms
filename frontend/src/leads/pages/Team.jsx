@@ -18,7 +18,18 @@ export default function Team() {
   const [people, setPeople] = useState(null), [f, setF] = useState(empty), [busy, setBusy] = useState(null), [q, setQ] = useState("");
   const [nameId, setNameId] = useState(null), [nameVal, setNameVal] = useState(""), [pwId, setPwId] = useState(null), [pw, setPw] = useState("");
   const refresh = () => api.ldTeam().then(setPeople).catch((e) => toast(e.message, "bad"));
-  useEffect(() => { refresh(); }, []);
+  const [miss, setMiss] = useState([]), [mf, setMf] = useState({});
+  const loadMissing = () => api.ldMissingLogins().then(setMiss).catch(() => {});
+  useEffect(() => { refresh(); loadMissing(); }, []);
+  const genPw = () => { const a = new Uint32Array(10); crypto.getRandomValues(a); return Array.from(a, (n) => "abcdefghjkmnpqrstuvwxyz23456789"[n % 31]).join(""); };
+  const createFor = async (m) => {
+    const x = mf[m.name] || {};
+    try {
+      await api.ldAddPerson({ name: m.name, email: x.email, password: x.password, leadName: m.name, role: "caller" });
+      toast(`Login created for ${m.name} — password: ${x.password}`, "good");
+      await refresh(); await loadMissing(); reloadLeads().catch(() => {});
+    } catch (err) { toast(err.message, "bad"); }
+  };
 
   const put = async (p, patch, msg) => {
     setBusy(p._id);
@@ -63,6 +74,25 @@ export default function Team() {
         assigned to their <strong>caller name</strong> — it has to match “Assigned To” in the intake sheet (or whatever an admin picks when
         assigning). Leave it blank to use the person's full name.
       </p>
+
+      {miss.length > 0 && (
+        <div className="ld-panel">
+          <h3>Callers with leads but no login yet</h3>
+          <p className="ld-small" style={{ marginTop: 0 }}>These names are in the sheet's “Assigned To”, so they have leads, but nobody can sign in as them — only admins can see those leads. Give each person their own login and they will see only their own tasks.</p>
+          {miss.map((m) => {
+            const x = mf[m.name] || {}, set = (patch) => setMf({ ...mf, [m.name]: { ...x, ...patch } });
+            return (
+              <form key={m.name} className="inline-form" onSubmit={(e) => { e.preventDefault(); createFor(m); }}>
+                <span style={{ minWidth: 150 }}><b>{m.name}</b> <span className="ld-small">· {m.leads} leads</span></span>
+                <input type="email" required placeholder="Their email (login)" value={x.email || ""} onChange={(e) => set({ email: e.target.value })} />
+                <input required minLength={8} placeholder="Password (min 8)" value={x.password || ""} onChange={(e) => set({ password: e.target.value })} />
+                <button type="button" className="ld-btn" onClick={() => set({ password: genPw() })}>Generate</button>
+                <button type="submit">Create login</button>
+              </form>
+            );
+          })}
+        </div>
+      )}
 
       <div className="toolbar"><SearchInput value={q} onChange={setQ} placeholder="Search by name, email, caller name… (press /)" /></div>
       <div className="table-wrap">

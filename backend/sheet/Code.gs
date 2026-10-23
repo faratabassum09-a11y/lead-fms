@@ -2,7 +2,8 @@
  * Lead FMS  <->  Google Sheet connector  (reads ALL tabs)
  * ------------------------------------------------------------------
  * The person who works on the sheet every morning types ONLY these columns:
- *     Timestamp | Lead Name | Lead Email | Lead Phone | UTW Date | Assigned To
+ *     Timestamp | Lead Name | Lead Email | Lead Phone | UTW Date | Assigned To | Workshop Name
+ * (Workshop Name = the workshop this lead came for. Type a NEW name and the website shows a filter for it.)
  * The website reads those rows from EVERY lead tab of this file (new leads appear for the callers).
  * When a caller updates a lead on the website, this script fills in:
  *     Level | Profession | City
@@ -34,10 +35,12 @@ var ONLY_TAB   = "";                 // leave empty = read every lead tab; or ty
 var TIME_ZONE  = "Asia/Kolkata";
 
 var WEBSITE_COLUMNS = ["Level", "Profession", "City"];
+var TYPED_COLUMNS   = ["Workshop Name"];   // typed by the morning person; setupSheet adds the header when a tab has none
 // the columns the website understands: [name sent to the website, how to recognise the header]
 var COLUMNS = [
-  ["Timestamp", /timestamp/], ["Lead Name", /name/], ["Lead Email", /email/], ["Lead Phone", /phone/],
-  ["UTW Date", /utw/], ["Assigned To", /assigned/], ["Level", /^level/], ["Profession", /profession/], ["City", /city/]
+  ["Timestamp", /timestamp/], ["Lead Name", /^(?!.*workshop).*name/], ["Lead Email", /email/], ["Lead Phone", /phone/],
+  ["UTW Date", /utw/], ["Assigned To", /assigned/], ["Workshop Name", /workshop/],
+  ["Level", /^level/], ["Profession", /profession/], ["City", /city/]
 ];
 
 /* ---------------------------------------------------------------- web app */
@@ -191,8 +194,8 @@ var PROTECT_NOTE = "Filled by the website";
 
 function prepareTab_(info) {
   var sh = info.sheet, hi = info.hi, head = info.head.slice();
-  WEBSITE_COLUMNS.forEach(function (name) {                           // make sure Level / Profession / City exist
-    if (head.indexOf(name.toLowerCase()) < 0) {
+  TYPED_COLUMNS.concat(WEBSITE_COLUMNS).forEach(function (name) {     // make sure Workshop Name / Level / Profession / City exist
+    if (!head.some(function (h) { return h.indexOf(name.toLowerCase().split(" ")[0]) === 0 || h === name.toLowerCase(); })) {
       var c = head.length; head.push(name.toLowerCase());
       if (c + 1 > sh.getMaxColumns()) sh.insertColumnAfter(sh.getMaxColumns());
       sh.getRange(hi + 1, c + 1).setValue(name);

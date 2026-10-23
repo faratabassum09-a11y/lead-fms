@@ -11,6 +11,10 @@ const Fu = new Schema(
   { _id: false }
 );
 
+// One line of a lead's story: how it came in, who it was assigned to (and how), attendance, edits.
+// Calls are NOT stored here — they come from the Activity collection, which keeps every update forever.
+const Trail = new Schema({ at: Date, type: String, text: String, by: String }, { _id: false });
+
 const LeadSchema = new Schema(
   {
     key: { type: String, unique: true }, // the phone number as first imported — one lead per phone
@@ -21,7 +25,12 @@ const LeadSchema = new Schema(
     phone: String,
     phone10: { type: String, index: true }, // last 10 digits: matches 98xxxxxxxx and 9198xxxxxxxx
     utwDate: String,
+    workshop: { type: String, index: true }, // typed in the sheet's "Workshop Name" column
     assignedTo: { type: String, index: true }, // caller name (Lead Qualification)
+    assignedBy: String, // how assignedTo was set: "auto" (Settings) | "sheet" (Assigned To column) | "manual" (an admin)
+    assignedAt: Date,
+    d1By: String, d2By: String, // how d1Assigned / d2Assigned were set ("auto" | "manual")
+    trail: [Trail],
     d1Assigned: String, // optional separate caller for the Day 1 follow-ups
     d2Assigned: String, // ... and Day 2
     locked: Boolean, // manually assigned: a sheet re-import never changes the caller
@@ -68,7 +77,7 @@ export const LeadImportLog = mongoose.model(
   "ImportLog",
   new Schema({
     at: { type: Date, index: true }, by: String, byEmail: String, trigger: String, // "manual" | "auto"
-    added: Number, updated: Number, byEmailMatched: Number, rows: Number, ok: Boolean, error: String,
+    added: Number, updated: Number, byEmailMatched: Number, rows: Number, ok: Boolean, error: String, note: String,
   }),
   "importlogs"
 );

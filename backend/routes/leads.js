@@ -35,6 +35,8 @@ router.put("/config", adminOnly, wrap(async (req, res) => {
   const prev = await S.getCfg(), next = { ...prev, ...b };
   next.plan = S.cleanPlan(next.plan, "Lead follow-ups");
   next.attPlan = S.cleanPlan(next.attPlan, "Attendee follow-ups");
+  next.assign = S.cleanAssign(next.assign);
+  delete next.autoAssign; // replaced by "Automatic assignment"
   next.sheetUrl = String(next.sheetUrl || "").trim();
   if (next.sheetUrl && !/^https:\/\/script\.google(usercontent)?\.com\//.test(next.sheetUrl)) throw fail("The Google Script link should start with https://script.google.com/…");
   if (!Array.isArray(next.statuses) || !next.statuses.length) throw fail("Add at least one call status");
@@ -47,6 +49,11 @@ router.put("/config", adminOnly, wrap(async (req, res) => {
 
 // the chooser card on the Hub
 router.get("/stats", wrap(async (req, res) => res.json(await S.stats(req.lu))));
+
+// live race: calls done vs left today, per caller — visible to every signed-in person
+router.get("/progress", wrap(async (_req, res) => res.json(await S.progress())));
+// "Share out again" in Settings -> Automatic assignment
+router.post("/assign/reshare", adminOnly, wrap(async (req, res) => res.json(await S.reshare(String(req.body?.queue || "")))));
 
 // ---------- intake sheet ----------
 router.post("/sync", adminOnly, wrap(async (req, res) => { const r = await S.syncIntake({ name: req.user.name, email: req.user.email }); S.pushSoon(); res.json(r); }));
@@ -65,25 +72,38 @@ router.post("/sheet-test", adminOnly, wrap(async (req, res) => {
   const cfg = { ...(await S.getCfg()), ...(req.body || {}) };
   const rows = await S.readSheetRows(cfg), hi = rows.findIndex((r) => r.some((c) => /phone/i.test(String(c))));
   if (hi < 0) throw fail("Connected, but no header row with “Lead Phone” was found in the first tab");
-  const H = rows[hi].map((h) => String(h).trim()), need = ["Timestamp", "Lead Name", "Lead Email", "Lead Phone", "UTW Date", "Assigned To"];
+  const H = rows[hi].map((h) => String(h).trim()), need = ["Timestamp", "Lead Name", "Lead Email", "Lead Phone", "UTW Date", "Assigned To", "Workshop"];
   const missing = need.filter((n) => !H.some((h) => h.toLowerCase().includes(n.toLowerCase().replace("lead ", ""))));
   res.json({ ok: true, leadsInSheet: rows.slice(hi + 1).filter((r) => String(r.find((_, i) => /phone/i.test(H[i] || "")) ?? "").trim()).length, headers: H.filter(Boolean), missing });
 }));
 
 // ---------- leads ----------
-router.get("/leads", wrap(async (req, res) => res.json(await Lead.find(S.mineFilter(req.lu)).sort({ ts: -1 }).lean())));
+router.get("/leads", wrap(async (req, res) => res.json(await Lead.find(S.mineFilter(req.lu)).select("-trail").sort({ ts: -1 }).lean())));
+
+// one lead's whole story: how it came in, who it was assigned to, every call ever made
+router.get("/leads/:id/history", wrap(async (req, res) => {
+  const l = await loadLead(req.params.id);
+  if (!S.ownsLead(req.lu, l)) throw fail("Not your lead", 403);
+  const calls = await LeadActivity.find({ key: l.key }).sort({ at: -1 }).limit(200).lean();
+  res.json({ trail: l.trail || [], calls: calls.map((c) => ({ at: c.at, stage: c.stage, step: c.step, status: c.status, note: c.note, caller: c.caller, delayMs: c.delayMs })) });
+}));
 
 router.post("/leads", adminOnly, wrap(async (req, res) => {
   const c = await S.getCfg(), b = req.body || {}, phone = String(b.phone || "").replace(/\D/g, "");
   if (!phone || !b.name?.trim()) throw fail("Name and phone are required");
-  const ts = new Date();
-  res.json(await Lead.create({ key: phone, phone, name: b.name.trim(), email: b.email, city: b.city, profession: b.profession, level: b.level, ts, assignedTo: b.assignedTo, locked: !!b.assignedTo, source: "manual", fus: S.planFor(ts, c) }));
+  const ts = new Date(), A = await S.assigner("new", c), owner = b.assignedTo || A.pick();
+  const story = [{ at: ts, type: "entered", text: "Lead added by " + req.user.name, by: req.user.name }];
+  if (owner) story.push({ at: ts, type: "assign", text: `Assigned to ${owner} (${b.assignedTo ? "by " + req.user.name : "automatic"})`, by: b.assignedTo ? req.user.name : "System" });
+  const lead = await Lead.create({ key: phone, phone, name: b.name.trim(), email: b.email, city: b.city, profession: b.profession, level: b.level, workshop: S.cleanWorkshop(b.workshop), ts, assignedTo: owner, assignedBy: owner ? (b.assignedTo ? "manual" : "auto") : undefined, assignedAt: owner ? ts : undefined, locked: !!b.assignedTo, source: "manual", fus: S.planFor(ts, c), trail: story });
+  await A.save();
+  res.json(S.plain(lead));
 }));
 
 router.post("/leads/bulk-assign", adminOnly, wrap(async (req, res) => {
   const ids = (req.body?.ids || []).filter((i) => mongoose.isValidObjectId(i));
   if (!ids.length) throw fail("Select at least one lead");
-  await Lead.updateMany({ _id: { $in: ids } }, { assignedTo: req.body.assignedTo || "", locked: true });
+  const to = String(req.body.assignedTo || "");
+  await Lead.updateMany({ _id: { $in: ids } }, { $set: { assignedTo: to, locked: true, assignedBy: "manual", assignedAt: new Date() }, $push: { trail: S.trailOp("assign", to ? `Assigned to ${to} (by ${req.user.name})` : `Unassigned (by ${req.user.name})`, req.user.name) } });
   res.json({ ok: 1, count: ids.length });
 }));
 
@@ -93,12 +113,24 @@ router.patch("/leads/:id", wrap(async (req, res) => {
   if (!S.ownsLead(req.lu, l)) throw fail("Not your lead", 403);
   const b = req.body || {}, cfg = await S.getCfg();
   for (const d of [1, 2]) if ("day" + d in b) {
+    const was = !!l["day" + d];
     l["day" + d] = !!b["day" + d];
     if (b["day" + d] && !l["d" + d + "Fus"].length) l["d" + d + "Fus"] = S.attFus(cfg);
+    if (b["day" + d] && !was) { S.trail(l, "attendance", `Marked present on Day ${d}`, req.user.name); S.autoAssignDay(l, d, await S.assigner("d" + d, cfg)); }
+    if (!b["day" + d] && was) S.trail(l, "attendance", `Day ${d} attendance removed`, req.user.name);
   }
-  if (b.assignedTo !== undefined && req.lu.leadAdmin) { l.assignedTo = b.assignedTo; l.locked = true; }
+  if (b.assignedTo !== undefined && req.lu.leadAdmin) {
+    const to = String(b.assignedTo || "");
+    if (to !== (l.assignedTo || "")) S.trail(l, "assign", to ? (l.assignedTo ? `Reassigned from ${l.assignedTo} to ${to}` : `Assigned to ${to}`) + ` (by ${req.user.name})` : `Unassigned (by ${req.user.name})`, req.user.name);
+    l.assignedTo = to; l.locked = true; l.assignedBy = "manual"; l.assignedAt = new Date();
+  }
+  if (b.workshop !== undefined && req.lu.leadAdmin) {
+    const w = S.cleanWorkshop(b.workshop);
+    if (w !== (l.workshop || "")) { S.trail(l, "workshop", w ? `Workshop set to ${w} (by ${req.user.name})` : `Workshop cleared (by ${req.user.name})`, req.user.name); l.workshop = w; }
+  }
   await l.save();
-  res.json(l);
+  S.bustProgress();
+  res.json(S.plain(l));
 }));
 
 // update one follow-up: status, note, callback time (+ the automations)
@@ -116,7 +148,7 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
     const v = b[k].trim().slice(0, 80);
     if (v !== (l[k] || "")) { l[k] = v; detailsChanged = true; }
   }
-  if (detailsChanged) l.sheetDirty = true;
+  if (detailsChanged) { l.sheetDirty = true; S.trail(l, "details", `Details updated: ${["level", "profession", "city"].map((k) => l[k] && `${k[0].toUpperCase() + k.slice(1)} ${l[k]}`).filter(Boolean).join(" · ")}`, req.user.name); }
   f.status = b.status || undefined;
   f.note = b.note || "";
   f.callbackAt = b.callbackAt ? new Date(b.callbackAt) : undefined;
@@ -133,7 +165,8 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
   l.markModified(set);
   await l.save();
   if (b.status) await S.logAct(l, n, f, req.user.email, set);
-  res.json(l);
+  S.bustProgress();
+  res.json(S.plain(l));
   if (detailsChanged) S.pushSoon(); // write to the Google Sheet in the background — never slows the caller down
 }));
 
@@ -142,7 +175,7 @@ router.post("/attendance", adminOnly, wrap(async (req, res) => {
   const d = +req.body?.day === 2 ? 2 : 1, cfg = await S.getCfg(), missing = [];
   const entries = [...(req.body?.entries || []), ...(req.body?.phones || [])].map((x) => String(x).trim()).filter(Boolean);
   let marked = 0;
-  const seen = new Set();
+  const seen = new Set(), A = await S.assigner("d" + d, cfg);
   for (const e of entries) {
     const n = e.replace(/\D/g, "").slice(-10);
     // an email is matched on the email; anything else on the phone number
@@ -150,11 +183,14 @@ router.post("/attendance", adminOnly, wrap(async (req, res) => {
     if (!l) { missing.push(e); continue; }
     if (seen.has(String(l._id))) continue; // the same person pasted by phone and by email
     seen.add(String(l._id));
+    if (!l["day" + d]) S.trail(l, "attendance", `Marked present on Day ${d}`, req.user.name);
     l["day" + d] = true;
     if (!l["d" + d + "Fus"].length) l["d" + d + "Fus"] = S.attFus(cfg);
+    S.autoAssignDay(l, d, A);
     await l.save();
     marked++;
   }
+  await A.save();
   res.json({ marked, missing });
 }));
 
@@ -177,6 +213,14 @@ const otherActiveAdmins = (id) => User.countDocuments({ _id: { $ne: id }, role: 
 
 router.get("/team", adminOnly, wrap(async (_req, res) => {
   res.json((await User.find().select("-passwordHash").sort({ name: 1 }).lean()).map(teamRow));
+}));
+// caller names that leads are assigned to but that nobody can sign in as yet
+router.get("/team/missing", adminOnly, wrap(async (_req, res) => {
+  const have = new Set((await User.find({ active: { $ne: false } }).lean()).map((u) => S.leadCallerName(u).toLowerCase()));
+  const rows = await Lead.aggregate([{ $project: { n: ["$assignedTo", "$d1Assigned", "$d2Assigned"] } }, { $unwind: "$n" }, { $match: { n: { $nin: [null, ""] } } }, { $group: { _id: "$n", leads: { $sum: 1 } } }]);
+  const by = new Map();
+  for (const r of rows) { const k = String(r._id).trim().toLowerCase(); if (!k || have.has(k)) continue; const x = by.get(k) || { name: String(r._id).trim(), leads: 0 }; x.leads += r.leads; by.set(k, x); }
+  res.json([...by.values()].sort((a, b) => b.leads - a.leads));
 }));
 router.get("/callers", adminOnly, wrap(async (_req, res) => res.json(await S.callerNames()))); // for the assign dropdowns
 
