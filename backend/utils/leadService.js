@@ -477,7 +477,7 @@ export async function board() {
   for (const l of leads) {
     const x = r(l.assignedTo); x.leads++; if (l.ts >= sod) newToday++;
     ["fus", "d1Fus", "d2Fus"].forEach((set) => (l[set] || []).forEach((f, i, arr) => {
-      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual)) return;
+      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual && !arr[i - 1].skipped)) return;
       const y = r((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo), p = new Date(f.planned);
       if (p <= eod) y.due++;
       if (p < now) {
@@ -535,7 +535,7 @@ export async function progress() {
   for (const l of leads)
     for (const set of ["fus", "d1Fus", "d2Fus"])
       (l[set] || []).forEach((f, i, arr) => {
-        if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual) || new Date(f.planned) > eod) return;
+        if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual && !arr[i - 1].skipped) || new Date(f.planned) > eod) return;
         const x = r((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo);
         if (x) x.left++;
       });
@@ -563,7 +563,7 @@ export async function stats(user) {
   for (const l of leads) {
     if (!l.assignedTo) unassigned++;
     ["fus", "d1Fus", "d2Fus"].forEach((set) => (l[set] || []).forEach((f, i, arr) => {
-      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual)) return;
+      if (f.actual || f.skipped || !f.planned || i >= planLen(cfg, set) || (i && !arr[i - 1].actual && !arr[i - 1].skipped)) return;
       const who = ((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo || "").toLowerCase();
       if (!user.leadAdmin && who !== me) return;
       const p = new Date(f.planned);
@@ -621,7 +621,7 @@ async function perfRange(from, to, cfg, users, now) {
         if (f.skipped || !f.planned || i >= planLen(cfg, set)) return;
         const p = new Date(f.planned);
         if (p < from || p > to) return;
-        if (!f.actual && i && !arr[i - 1].actual) return; // not actionable yet (the call before it is still pending)
+        if (!f.actual && i && !arr[i - 1].actual && !arr[i - 1].skipped) return; // not actionable yet (the call before it is still pending)
         const x = r((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo);
         if (!x) return;
         x.assigned++;
@@ -646,4 +646,22 @@ export async function performance(fromYmd, toYmd) {
   const prevFrom = new Date(+from - span * 864e5), prevTo = new Date(+from - 1);
   const [cur, prev] = await Promise.all([perfRange(from, to, cfg, users, now), perfRange(prevFrom, prevTo, cfg, users, now)]);
   return { from: fromYmd, to: toYmd, today, inProgress: to >= now, at: now, graceMin: GRACE / 60000, ...cur, prev: prev.team };
+}
+
+
+// "Fresh start": close every call that was planned before today and is still not done, so nothing is "delayed".
+// Closed calls count as passed, so each lead's next call (planned today or later) still comes up normally.
+export async function clearDelayed() {
+  const sod = startOfDay(new Date());
+  let calls = 0;
+  for (const set of ["fus", "d1Fus", "d2Fus"]) {
+    const r = await Lead.updateMany(
+      { [set]: { $elemMatch: { actual: { $exists: false }, skipped: { $ne: true }, planned: { $lt: sod } } } },
+      { $set: { [`${set}.$[e].skipped`]: true } },
+      { arrayFilters: [{ "e.actual": { $exists: false }, "e.skipped": { $ne: true }, "e.planned": { $lt: sod } }] }
+    );
+    calls += r.modifiedCount || 0;
+  }
+  bustProgress();
+  return { leads: calls };
 }

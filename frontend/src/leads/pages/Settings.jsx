@@ -21,7 +21,14 @@ export default function Settings() {
 function Form({ cfg, load, sync, toast, leads }) {
   const [c, setC] = useState(cfg), [st, setSt] = useState(cfg.statuses.join(", ")), [rs, setRs] = useState(cfg.retryStatuses.join(", ")), [cs, setCs] = useState(cfg.closeStatuses.join(", "));
   const [saving, setSaving] = useState(false);
-  const [log, setLog] = useState(null);
+  const [log, setLog] = useState(null), [clearing, setClearing] = useState(false);
+  const clearOld = async () => {
+    if (!window.confirm("Close ALL calls planned before today that are still not done? This cannot be undone.")) return;
+    setClearing(true);
+    try { const r = await api.ldClearDelayed(); await load(); toast(`Fresh start done — ${r.leads} old pending calls closed`, "good"); }
+    catch (e) { toast(e.message, "bad"); }
+    setClearing(false);
+  };
   const loadLog = useCallback(() => api.ldImportLog().then(setLog).catch(() => setLog([])), []);
   useEffect(() => { loadLog(); }, [loadLog]);
   // every "import" click ends with the log refreshed — also when the import failed (that is logged too)
@@ -114,6 +121,11 @@ function Form({ cfg, load, sync, toast, leads }) {
         <Field label="Auto-close: statuses that cancel the remaining follow-ups"><input className="ld-input" value={cs} onChange={(e) => setCs(e.target.value)} /></Field>
         <Field label="Escalate to admin when a follow-up is overdue by (hours)"><input className="ld-input ld-narrow" type="number" min="1" value={c.escalateHours} onChange={(e) => setC({ ...c, escalateHours: +e.target.value })} /></Field>
         <Field label="WhatsApp message template" hint="Use {name} and {caller}."><input className="ld-input" value={c.waTemplate} onChange={(e) => setC({ ...c, waTemplate: e.target.value })} /></Field>
+      </Panel>
+
+      <Panel title="🧹 Fresh start">
+        <p className="ld-small" style={{ marginTop: 0 }}>Closes every call that was planned before today and is still not done, so nothing is left over as "delayed". Each lead's next call (today or later) still comes up as normal. This cannot be undone.</p>
+        <button type="button" className="ld-btn ld-btn-remove" disabled={clearing} onClick={clearOld}>{clearing ? "Clearing…" : "Clear all old pending calls"}</button>
       </Panel>
 
       <Panel title="📜 Import log">

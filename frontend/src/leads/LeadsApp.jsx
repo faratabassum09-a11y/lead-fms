@@ -17,7 +17,6 @@ const Board = lazyRetry(() => import("./pages/Board.jsx"));
 const Reports = lazyRetry(() => import("./pages/Reports.jsx"));
 const Dashboard = lazyRetry(() => import("./pages/Dashboard.jsx"));
 const Tasks = lazyRetry(() => import("./pages/Tasks.jsx"));
-const FollowUps = lazyRetry(() => import("./pages/FollowUps.jsx"));
 const AttendeeFollowUps = lazyRetry(() => import("./pages/AttendeeFollowUps.jsx"));
 const LeadList = lazyRetry(() => import("./pages/LeadList.jsx"));
 const Attendance = lazyRetry(() => import("./pages/Attendance.jsx"));
@@ -30,7 +29,7 @@ const Account = lazyRetry(() => import("../pages/Account.jsx"));
 // Pages are code-split; once the app is idle the rest are fetched in the background so moving
 // between pages feels instant.
 const prefetchPages = () => {
-  import("./pages/Tasks.jsx"); import("./pages/FollowUps.jsx"); import("./pages/AttendeeFollowUps.jsx"); import("./pages/LeadList.jsx"); import("./pages/Dashboard.jsx");
+  import("./pages/Tasks.jsx"); import("./pages/AttendeeFollowUps.jsx"); import("./pages/LeadList.jsx"); import("./pages/Dashboard.jsx");
   import("./pages/Attendance.jsx"); import("./pages/Reports.jsx"); import("./pages/Activity.jsx");
 };
 
@@ -73,14 +72,13 @@ function Shell() {
   const eod = new Date(now); eod.setHours(23, 59, 59, 999);
   const pending = tasksOf(leads, who, cfg).filter((t) => new Date(t.f.planned) <= eod);
   const fuOnly = pending.filter((t) => t.set === "fus"); // FU1 / FU2 / FU3; Day 1 / Day 2 attendee calls have their own page
-  const todayCount = fuOnly.filter(isDueToday).length, followCount = fuOnly.length - todayCount, attendCount = pending.length - fuOnly.length;
+  const todayCount = fuOnly.filter(isDueToday).length, attendCount = pending.length - fuOnly.length;
   const links = [
     ...(admin ? [{ to: "/board", label: "Daily Board", icon: "board" }] : []),
     ...(admin ? [{ to: "/performance", label: "Team Performance", icon: "perf" }] : []),
     ...(admin ? [{ to: "/reports", label: "Reports", icon: "reports" }] : []),
     { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
     { to: "/tasks", label: "Today Follow-ups", icon: "tasks", badge: todayCount },
-    { to: "/followups", label: "Delayed Follow-ups", icon: "followups", badge: followCount },
     { to: "/attendee-followups", label: "Attendee Follow-ups", icon: "attfu", badge: attendCount },
     { to: "/leads", label: "Leads", icon: "leads" },
     { to: "/attendance", label: "Attendance", icon: "attend" },
@@ -166,7 +164,7 @@ function Shell() {
               <Route path="reports" element={<Reports />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tasks" element={<Tasks />} />
-              <Route path="followups" element={<FollowUps />} />
+              <Route path="followups" element={<Navigate to="/tasks" replace />} />
               <Route path="attendee-followups" element={<AttendeeFollowUps />} />
               <Route path="leads" element={<LeadList />} />
               <Route path="attendance" element={<Attendance />} />
