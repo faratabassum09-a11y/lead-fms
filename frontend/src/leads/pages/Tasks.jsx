@@ -18,6 +18,7 @@ const Ico = ({ d, size = 17 }) => (
 const PhoneIco = () => <Ico d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />;
 const ChatIco = () => <Ico d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />;
 const UserIco = () => <Ico size={13} d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />;
+const OpenIco = () => <Ico size={12} d="M7 17 17 7M8 7h9v9" />;
 const TickIco = () => <Ico d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3" />;
 
 const stepLabel = (set, i) => (set === "d1Fus" ? "Day 1 · " : set === "d2Fus" ? "Day 2 · " : "") + (set === "fus" ? stepName(i) : stepName(i).toLowerCase());
@@ -42,7 +43,7 @@ function TaskCard({ x, cb, calm, delayed, now, cfg, openLead, setModal }) {
   const call = <a className="ld-btn ld-btn-solid" href={"tel:" + l.phone}><PhoneIco /> Call</a>;
   const chat = <a className="ld-btn ld-btn-wa" href={wa(l.phone, waText(l, cfg))} target="_blank" rel="noreferrer"><ChatIco /> WhatsApp</a>;
   const upd = <button type="button" className="ld-btn" onClick={open}><TickIco /> Update status</button>;
-  const nameBtn = <button type="button" className="ld-namebtn" onClick={() => openLead(l)} title="See this lead's history"><b>{l.name}</b></button>;
+  const nameBtn = <button type="button" className="ld-namebtn" onClick={() => openLead(l)} title="Click to open this lead's details and history"><b>{l.name}</b><OpenIco /></button>;
 
   if (calm) {
     const tag = cb ? "Callback · " + clock(f.callbackAt) : delayed ? "From " + shortDate(f.planned) : s === "over" ? "Ready to call" : "Today · " + clock(f.planned);

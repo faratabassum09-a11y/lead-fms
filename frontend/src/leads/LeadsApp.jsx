@@ -22,6 +22,7 @@ const AttendeeFollowUps = lazyRetry(() => import("./pages/AttendeeFollowUps.jsx"
 const LeadList = lazyRetry(() => import("./pages/LeadList.jsx"));
 const Attendance = lazyRetry(() => import("./pages/Attendance.jsx"));
 const Activity = lazyRetry(() => import("./pages/Activity.jsx"));
+const Performance = lazyRetry(() => import("./pages/Performance.jsx"));
 const Team = lazyRetry(() => import("./pages/Team.jsx"));
 const Settings = lazyRetry(() => import("./pages/Settings.jsx"));
 const Account = lazyRetry(() => import("../pages/Account.jsx"));
@@ -36,6 +37,7 @@ const prefetchPages = () => {
 const I = {
   board: "M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM8 14h3",
   reports: "M4 19h16M7 16V9M12 16V5M17 16v-4",
+  perf: "M4 20V10M10 20V4M16 20v-7M22 20H2",
   dashboard: "M3 13h7V3H3v10Zm0 8h7v-6H3v6Zm11 0h7V11h-7v10Zm0-18v6h7V3h-7Z",
   tasks: "M9 11.2 6.8 9l-1.4 1.4L9 14l7-7-1.4-1.4L9 11.2ZM4 20h16",
   followups: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.100 4.200 2 2 0 0 1 4.100 2h3a2 2 0 0 1 2 1.700c.1 1 .4 1.900.7 2.800a2 2 0 0 1-.5 2.100L8.100 9.900a16 16 0 0 0 6 6l1.300-1.300a2 2 0 0 1 2.100-.5c.9.3 1.800.6 2.800.7a2 2 0 0 1 1.700 2Z",
@@ -74,6 +76,7 @@ function Shell() {
   const todayCount = fuOnly.filter(isDueToday).length, followCount = fuOnly.length - todayCount, attendCount = pending.length - fuOnly.length;
   const links = [
     ...(admin ? [{ to: "/board", label: "Daily Board", icon: "board" }] : []),
+    ...(admin ? [{ to: "/performance", label: "Team Performance", icon: "perf" }] : []),
     ...(admin ? [{ to: "/reports", label: "Reports", icon: "reports" }] : []),
     { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
     { to: "/tasks", label: "Today Follow-ups", icon: "tasks", badge: todayCount },
@@ -159,6 +162,7 @@ function Shell() {
             <Routes>
               <Route index element={<Navigate to={home} replace />} />
               <Route path="board" element={guard(<Board />)} />
+              <Route path="performance" element={guard(<Performance />)} />
               <Route path="reports" element={<Reports />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tasks" element={<Tasks />} />

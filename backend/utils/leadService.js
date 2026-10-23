@@ -530,6 +530,8 @@ export async function progress() {
   ]);
   const show = new Map(users.map((u) => [leadCallerName(u).toLowerCase(), leadCallerName(u)])), R = {};
   const r = (n) => { const k = String(n || "").trim().toLowerCase(); return k ? (R[k] ||= { name: show.get(k) || String(n).trim(), done: 0, left: 0, connected: 0, last: null }) : null; };
+  const everyone = new Set(users.filter((u) => u.role !== "admin").map((u) => leadCallerName(u).toLowerCase()).filter(Boolean));
+  everyone.forEach((k) => r(k)); // every caller is on the board, even before their first task
   for (const l of leads)
     for (const set of ["fus", "d1Fus", "d2Fus"])
       (l[set] || []).forEach((f, i, arr) => {
@@ -544,7 +546,7 @@ export async function progress() {
     if (!x.last || a.at > x.last) x.last = a.at;
   }
   const rows = Object.values(R).map((x) => ({ ...x, total: x.done + x.left, pct: Math.round((x.done / (x.done + x.left || 1)) * 100) }))
-    .filter((x) => x.total > 0)
+    .filter((x) => x.total > 0 || everyone.has(x.name.toLowerCase()))
     .sort((a, b) => b.pct - a.pct || b.done - a.done || a.name.localeCompare(b.name));
   const done = rows.reduce((s, x) => s + x.done, 0), total = rows.reduce((s, x) => s + x.total, 0);
   const v = { at: now, rows, team: { done, total, pct: total ? Math.round((done / total) * 100) : 0 } };
@@ -584,4 +586,64 @@ export function startJobs() {
   cron.schedule("55 23 * * *", () => snapshot().catch((e) => console.error("[leads] snapshot failed:", e.message)), { timezone }); // nightly snapshot, kept forever
   // every 5 minutes: write any pending Level / Profession / City back to the sheet, then import new morning leads
   cron.schedule("*/5 * * * *", async () => { await pushDirty().catch(() => {}); await syncIntake().catch(() => {}); }); // (auto runs only reach the import log when they change something)
+}
+
+
+// ---------------------------------------------------------------------------
+// Team performance (admins): "are they doing their work on time?"
+// Every follow-up call has a deadline (its planned time). A task counts in a period when its deadline falls in it.
+//   on time = done by the deadline (+ PERF_GRACE_MIN minutes of grace)   late = done after that
+//   missed  = deadline passed and still not done                          to do = deadline not reached yet
+//   due     = on time + late + missed        score = (on time + late/2) / due * 100
+// ---------------------------------------------------------------------------
+const GRACE = Number(process.env.PERF_GRACE_MIN ?? 30) * 60000;
+const dayStart = (ymd) => U(new Date(ymd + "T00:00:00.000Z"));
+const rating = (sc) => (sc == null ? "none" : sc >= 85 ? "excellent" : sc >= 70 ? "good" : sc >= 50 ? "fair" : "poor");
+const sumRow = (x) => {
+  const due = x.onTime + x.late + x.missed;
+  const score = due ? Math.round(((x.onTime + x.late / 2) / due) * 100) : null;
+  return { ...x, due, score, rating: rating(score), completed: due ? Math.round(((x.onTime + x.late) / due) * 100) : null };
+};
+async function perfRange(from, to, cfg, users, now) {
+  const inR = { $elemMatch: { planned: { $gte: from, $lte: to } } };
+  const leads = await Lead.find({ $or: [{ fus: inR }, { d1Fus: inR }, { d2Fus: inR }] }, "assignedTo d1Assigned d2Assigned fus d1Fus d2Fus").lean();
+  const show = new Map(users.map((u) => [leadCallerName(u).toLowerCase(), u])), R = {};
+  const r = (n) => {
+    const k = String(n || "").trim().toLowerCase();
+    if (!k) return null;
+    const u = show.get(k);
+    return (R[k] ||= { name: u ? leadCallerName(u) : String(n).trim(), admin: u?.role === "admin", assigned: 0, onTime: 0, late: 0, missed: 0, todo: 0 });
+  };
+  users.filter((u) => u.role !== "admin").forEach((u) => r(leadCallerName(u)));
+  for (const l of leads)
+    for (const set of ["fus", "d1Fus", "d2Fus"])
+      (l[set] || []).forEach((f, i, arr) => {
+        if (f.skipped || !f.planned || i >= planLen(cfg, set)) return;
+        const p = new Date(f.planned);
+        if (p < from || p > to) return;
+        if (!f.actual && i && !arr[i - 1].actual) return; // not actionable yet (the call before it is still pending)
+        const x = r((set === "d1Fus" ? l.d1Assigned : set === "d2Fus" ? l.d2Assigned : "") || l.assignedTo);
+        if (!x) return;
+        x.assigned++;
+        if (f.actual) (new Date(f.actual) <= +p + GRACE ? x.onTime++ : x.late++);
+        else if (p < now) x.missed++;
+        else x.todo++;
+      });
+  const rows = Object.values(R).map(sumRow).filter((x) => x.assigned > 0 || !x.admin)
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.due - a.due || a.name.localeCompare(b.name));
+  const t = sumRow(rows.reduce((s, x) => ({ assigned: s.assigned + x.assigned, onTime: s.onTime + x.onTime, late: s.late + x.late, missed: s.missed + x.missed, todo: s.todo + x.todo }), { assigned: 0, onTime: 0, late: 0, missed: 0, todo: 0 }));
+  return { rows, team: t };
+}
+export async function performance(fromYmd, toYmd) {
+  const ok = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
+  const today = dateKey(new Date());
+  if (!ok(fromYmd)) fromYmd = today;
+  if (!ok(toYmd)) toYmd = fromYmd;
+  if (toYmd < fromYmd) [fromYmd, toYmd] = [toYmd, fromYmd];
+  const cfg = await getCfg(), now = new Date(), users = await User.find({ active: { $ne: false } }).lean();
+  const from = dayStart(fromYmd), to = endOfDay(dayStart(toYmd));
+  const span = Math.round((+to - +from + 1) / 864e5);
+  const prevFrom = new Date(+from - span * 864e5), prevTo = new Date(+from - 1);
+  const [cur, prev] = await Promise.all([perfRange(from, to, cfg, users, now), perfRange(prevFrom, prevTo, cfg, users, now)]);
+  return { from: fromYmd, to: toYmd, today, inProgress: to >= now, at: now, graceMin: GRACE / 60000, ...cur, prev: prev.team };
 }

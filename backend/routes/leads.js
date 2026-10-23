@@ -51,6 +51,8 @@ router.put("/config", adminOnly, wrap(async (req, res) => {
 router.get("/stats", wrap(async (req, res) => res.json(await S.stats(req.lu))));
 
 // live race: calls done vs left today, per caller — visible to every signed-in person
+// admin scorecard: tasks due / on time / late / missed per person for a date range (?from=YYYY-MM-DD&to=YYYY-MM-DD)
+router.get("/performance", adminOnly, wrap(async (req, res) => res.json(await S.performance(String(req.query.from || ""), String(req.query.to || "")))));
 router.get("/progress", wrap(async (_req, res) => res.json(await S.progress())));
 // "Share out again" in Settings -> Automatic assignment
 router.post("/assign/reshare", adminOnly, wrap(async (req, res) => res.json(await S.reshare(String(req.body?.queue || "")))));
