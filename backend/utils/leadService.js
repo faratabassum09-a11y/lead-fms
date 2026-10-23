@@ -657,9 +657,9 @@ export async function clearDelayed() {
   let calls = 0;
   for (const set of ["fus", "d1Fus", "d2Fus"]) {
     const r = await Lead.updateMany(
-      { [set]: { $elemMatch: { actual: { $exists: false }, skipped: { $ne: true }, planned: { $lt: sod } } } },
+      { [set]: { $elemMatch: { actual: null, skipped: { $ne: true }, planned: { $lt: sod } } } },
       { $set: { [`${set}.$[e].skipped`]: true } },
-      { arrayFilters: [{ "e.actual": { $exists: false }, "e.skipped": { $ne: true }, "e.planned": { $lt: sod } }] }
+      { arrayFilters: [{ "e.actual": null, "e.skipped": { $ne: true }, "e.planned": { $lt: sod } }] }
     );
     calls += r.modifiedCount || 0;
   }
@@ -671,8 +671,8 @@ export async function clearDelayed() {
 // From then on, calls that are missed on a given day become "delayed" the next day as usual.
 export async function freshStartOnce() {
   const saved = (await LeadConfig.findById("main").lean())?.v || {};
-  if (saved.freshStartAt) return;
+  if (saved.freshStartV2) return; // V2: the first version could miss calls whose "done" time was stored as empty
   const r = await clearDelayed();
-  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.freshStartAt": new Date() } }, { upsert: true });
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.freshStartV2": new Date() } }, { upsert: true });
   console.log(`[leads] fresh start: closed ${r.leads} old pending calls`);
 }
