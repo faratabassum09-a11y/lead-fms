@@ -105,7 +105,7 @@ function Form({ cfg, load, sync, toast, leads }) {
         </details>
       </Panel>
 
-      <AssignPanel c={c} setC={setC} leads={leads} saving={saving} onReshare={(q) => save(async () => {
+      <AssignPanel c={c} setC={setC} leads={leads} since={cfg.statsResetAt} saving={saving} onReshare={(q) => save(async () => {
         try { const r = await api.ldReshare(q); await load(); toast(r.moved ? `Shared out again — ${r.moved} of ${r.total} open leads moved` : `Nothing to move — all ${r.total} open leads are already split by the ratio`, "good"); }
         catch (e) { toast(e.message, "bad"); }
       })} />
@@ -201,7 +201,7 @@ function PlanRows({ rows, label, onEdit, onAdd, onDrop }) {
 // New leads, Day 1 calls and Day 2 calls are all shared EQUALLY between the ticked people.
 // (Leads an admin assigned by hand are never moved.)
 // ---------------------------------------------------------------------------
-function AssignPanel({ c, setC, leads, saving, onReshare }) {
+function AssignPanel({ c, setC, leads, since, saving, onReshare }) {
   const [team, setTeam] = useState(null);
   useEffect(() => { api.ldTeam().then(setTeam).catch(() => setTeam([])); }, []);
   const A = c.assign, mode = A.queues.new.mode, auto = mode === "auto";
@@ -215,7 +215,8 @@ function AssignPanel({ c, setC, leads, saving, onReshare }) {
     const list = people.map((p) => ({ name: p.leadName, on: who.includes(p.leadName), share: 1, present: true }));
     setC({ ...c, assign: { ...A, keepSame: true, queues: { new: { mode: m, people: list }, d1: { mode: m, people: list }, d2: { mode: m, people: list } } } });
   };
-  const open = (name) => (leads || []).filter((l) => !(l.fus || []).some((f) => f.actual) && (l.assignedTo || "").toLowerCase() === name.toLowerCase()).length;
+  const from = since ? new Date(since) : null; // after "Reset reports", only leads that came in since then are counted
+  const open = (name) => (leads || []).filter((l) => (!from || new Date(l.ts) >= from) && !(l.fus || []).some((f) => f.actual) && (l.assignedTo || "").toLowerCase() === name.toLowerCase()).length;
   return (
     <Panel title="👥 Automatic assignment">
       <p className="ld-small" style={{ marginTop: 0 }}>Turn it on and tick the people who should get leads. Every new lead (and every Day 1 / Day 2 call) is shared <b>equally</b> between them. Going on leave? Just untick them. Leads you assigned by hand are never moved.</p>
