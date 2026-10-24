@@ -197,76 +197,46 @@ function PlanRows({ rows, label, onEdit, onAdd, onDrop }) {
 }
 
 // ---------------------------------------------------------------------------
-// Automatic assignment: one block per column — new leads, Day 1 calls, Day 2 calls.
-// Off / Manual / Auto, who takes part, their share, and who is present today.
+// Automatic assignment — kept simple: one switch, and a tick next to everyone who should receive leads.
+// New leads, Day 1 calls and Day 2 calls are all shared EQUALLY between the ticked people.
+// (Leads an admin assigned by hand are never moved.)
 // ---------------------------------------------------------------------------
-const QUEUES = [
-  ["new", "New leads", "Leads that arrive from the sheet with a blank “Assigned To”"],
-  ["d1", "Day 1 attendees", "The calls after someone is marked present on Day 1"],
-  ["d2", "Day 2 attendees", "The calls after someone is marked present on Day 2"],
-];
-const HINT = {
-  new: { off: "Nothing is shared automatically. New leads keep the sheet's Assigned To, or stay unassigned.", manual: "New leads without an Assigned To wait for an admin to assign them (Leads → select → Assign).", auto: "New leads without an Assigned To are shared out by the ratio below, among the people who are present." },
-  d1: { off: "Day 1 calls stay with the caller who owns the lead.", manual: "Day 1 calls stay with the lead's caller until an admin changes them.", auto: "Day 1 calls are shared out by the ratio below (the lead's own caller keeps them when “keep with the same person” is on)." },
-  d2: { off: "Day 2 calls stay with the caller who owns the lead.", manual: "Day 2 calls stay with the lead's caller until an admin changes them.", auto: "Day 2 calls are shared out by the ratio below (the lead's own caller keeps them when “keep with the same person” is on)." },
-};
 function AssignPanel({ c, setC, leads, saving, onReshare }) {
   const [team, setTeam] = useState(null);
   useEffect(() => { api.ldTeam().then(setTeam).catch(() => setTeam([])); }, []);
-  const A = c.assign;
+  const A = c.assign, mode = A.queues.new.mode, auto = mode === "auto";
   const people = (team || []).filter((p) => p.active && p.leadName).filter((p, i, a) => a.findIndex((x) => x.leadName.toLowerCase() === p.leadName.toLowerCase()) === i);
-  const setQ = (k, patch) => setC({ ...c, assign: { ...A, queues: { ...A.queues, [k]: { ...A.queues[k], ...patch } } } });
-  // everyone on the team, merged with what is saved. A column that was never set up starts with every caller ticked.
-  const rowsOf = (k) => {
-    const saved = A.queues[k].people || [];
-    return people.map((p) => saved.find((s) => s.name.toLowerCase() === p.leadName.toLowerCase()) || { name: p.leadName, on: !saved.length && p.role === "caller", share: 1, present: true });
+  const saved = A.queues.new.people || [];
+  // ticked = saved as "on" and present; if nothing was ever saved, every caller starts ticked
+  const isOn = (p) => { const s = saved.find((x) => x.name.toLowerCase() === p.leadName.toLowerCase()); return s ? !!s.on && s.present !== false : !saved.length && p.role === "caller"; };
+  const names = people.filter(isOn).map((p) => p.leadName);
+  // one list for all three columns, equal shares
+  const write = (m, who) => {
+    const list = people.map((p) => ({ name: p.leadName, on: who.includes(p.leadName), share: 1, present: true }));
+    setC({ ...c, assign: { ...A, keepSame: true, queues: { new: { mode: m, people: list }, d1: { mode: m, people: list }, d2: { mode: m, people: list } } } });
   };
-  const roleOf = (n) => people.find((p) => p.leadName.toLowerCase() === n.toLowerCase())?.role;
-  const edit = (k, name, patch) => setQ(k, { people: rowsOf(k).map((r) => (r.name === name ? { ...r, ...patch } : r)) });
-  const copyTo = (k) => setC({ ...c, assign: { ...A, queues: Object.fromEntries(Object.entries(A.queues).map(([q, v]) => [q, q === k ? v : { mode: A.queues[k].mode, people: rowsOf(k) }])) } });
-  // open work per person in each column: nobody has called yet
-  const open = (k, name) => {
-    const n = name.toLowerCase();
-    return (leads || []).filter((l) => k === "new" ? !(l.fus || []).some((f) => f.actual) && (l.assignedTo || "").toLowerCase() === n
-      : l["day" + k[1]] && !(l[`d${k[1]}Fus`] || []).some((f) => f.actual) && ((l[`d${k[1]}Assigned`] || l.assignedTo || "").toLowerCase() === n)).length;
-  };
+  const open = (name) => (leads || []).filter((l) => !(l.fus || []).some((f) => f.actual) && (l.assignedTo || "").toLowerCase() === name.toLowerCase()).length;
   return (
     <Panel title="👥 Automatic assignment">
-      <p className="ld-small" style={{ marginTop: 0 }}>Decide how work is handed out. <b>Share</b> is a weight (2 = twice as many as 1), and un-ticking <b>Present</b> stops new work for that person today — for example when they are on leave. Leads an admin assigned by hand are never moved.</p>
-      <Check checked={A.keepSame} onChange={(v) => setC({ ...c, assign: { ...A, keepSame: v } })}>When a lead moves to its Day 1 / Day 2 calls, keep it with the same person if they are ticked there too</Check>
-      {QUEUES.map(([k, title, sub]) => {
-        const q = A.queues[k], rows = rowsOf(k), act = q.mode === "auto" ? rows.filter((r) => r.on && r.present && r.share > 0) : [], tot = act.reduce((s, r) => s + r.share, 0);
-        return (
-          <div className="ld-aq" key={k}>
-            <div className="ld-aq-head">
-              <div><b>{title}</b> <span className="ld-small">· {sub}</span></div>
-              <div className="ld-seg" role="group" aria-label={title + " mode"}>
-                {[["off", "Off"], ["manual", "Manual"], ["auto", "Auto"]].map(([m, t]) => <button key={m} type="button" className={q.mode === m ? "on" : ""} onClick={() => setQ(k, { mode: m, people: rowsOf(k) })}>{t}</button>)}
-              </div>
-            </div>
-            <p className="ld-small ld-aq-hint">{HINT[k][q.mode]}</p>
-            {team === null && <div className="ld-small">Loading people…</div>}
-            {q.mode !== "off" && rows.map((r) => (
-              <div key={r.name} className={"ld-aq-row" + (r.on ? " on" : "")}>
-                <label className="ld-aq-who"><input type="checkbox" checked={r.on} disabled={q.mode !== "auto"} onChange={(e) => edit(k, r.name, { on: e.target.checked })} /> <b>{r.name}</b> <span className="ld-small">· {roleOf(r.name) === "admin" ? "admin" : "caller"}</span></label>
-                {q.mode === "auto" && r.on && (
-                  <>
-                    <label className="ld-small">Share <input className="ld-input ld-share" type="number" min="1" max="100" value={r.share} onChange={(e) => edit(k, r.name, { share: e.target.value === "" ? "" : +e.target.value })} onBlur={(e) => !(+e.target.value >= 1) && edit(k, r.name, { share: 1 })} /></label>
-                    <label className="ld-check" style={{ margin: 0 }}><input type="checkbox" checked={r.present} onChange={(e) => edit(k, r.name, { present: e.target.checked })} /> Present</label>
-                    <span className="ld-count" title="Open now">{open(k, r.name)}</span>
-                  </>
-                )}
-              </div>
-            ))}
-            {q.mode === "auto" && <div className="ld-aq-ratio">{act.length ? <>Ratio: {act.map((r) => `${r.name} ${Math.round((r.share / tot) * 100)}%`).join(" · ")}</> : <span className="ld-bad">Nobody is ticked and present — new work will stay unassigned.</span>}</div>}
-            <div className="ld-actions" style={{ marginTop: 10 }}>
-              <button type="button" className="ld-btn" disabled={saving || q.mode !== "auto" || !act.length} onClick={() => onReshare(k)} title="Saves these settings, then re-deals the open work of this column">Share out again</button>
-              <button type="button" className="ld-btn" onClick={() => copyTo(k)}>Copy this to the other columns</button>
-            </div>
-          </div>
-        );
-      })}
-      <p className="ld-small">Press <b>Save settings</b> to apply. Callers are matched by their <b>caller name</b> (Team page).</p>
+      <p className="ld-small" style={{ marginTop: 0 }}>Turn it on and tick the people who should get leads. Every new lead (and every Day 1 / Day 2 call) is shared <b>equally</b> between them. Going on leave? Just untick them. Leads you assigned by hand are never moved.</p>
+      <label className="ld-check" style={{ margin: "10px 0" }}>
+        <input type="checkbox" checked={auto} disabled={team === null} onChange={(e) => write(e.target.checked ? "auto" : "off", names)} /> <b>Share leads automatically</b>
+      </label>
+      {team === null && <div className="ld-small">Loading people…</div>}
+      {auto && people.map((p) => (
+        <div key={p.leadName} className={"ld-aq-row" + (isOn(p) ? " on" : "")}>
+          <label className="ld-aq-who"><input type="checkbox" checked={isOn(p)} onChange={(e) => write("auto", e.target.checked ? [...names, p.leadName] : names.filter((n) => n !== p.leadName))} /> <b>{p.leadName}</b> <span className="ld-small">· {p.role === "admin" ? "admin" : "caller"}</span></label>
+          {isOn(p) && <span className="ld-count" title="Leads waiting for a first call">{open(p.leadName)}</span>}
+        </div>
+      ))}
+      {auto && (names.length
+        ? <p className="ld-small">Each of the {names.length} ticked {names.length === 1 ? "person gets" : "people get"} about {Math.round(100 / names.length)}% of new leads.</p>
+        : <p className="ld-bad">Nobody is ticked — new leads will stay unassigned.</p>)}
+      {!auto && <p className="ld-small">Automatic sharing is off. New leads keep the “Assigned To” from the sheet, or stay unassigned until you assign them.</p>}
+      <div className="ld-actions" style={{ marginTop: 10 }}>
+        <button type="button" className="ld-btn" disabled={saving || !auto || !names.length} onClick={() => onReshare("new")} title="Saves, then re-deals leads nobody has called yet">Share waiting leads equally now</button>
+      </div>
+      <p className="ld-small">Press <b>Save settings</b> to apply.</p>
     </Panel>
   );
 }
