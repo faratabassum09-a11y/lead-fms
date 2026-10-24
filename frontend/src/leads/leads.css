@@ -165,6 +165,9 @@ body .shortcuts-wrap .shortcuts-panel { left: auto; right: 0; }
 .ld-overdue-calm, .ld-overdue-calm.has { background: var(--accent-light); color: var(--accent-dark); border-color: transparent; }
 .ld-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 @media (max-width: 560px) { .ld-trio { grid-template-columns: 1fr; } }
+.ld-duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ld-next { margin-top: 4px; }
+.ld-reset-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: var(--accent-soft, rgba(99, 102, 241, .1)); }
 
 /* ---- Settings: sheet connection ---- */
 .ld-steps { display: grid; gap: 10px; margin: 6px 0 16px; font-size: 13.5px; }

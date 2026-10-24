@@ -56,7 +56,7 @@ function TaskCard({ x, cb, calm, delayed, now, cfg, openLead, setModal }) {
           </div>
           <span className="ld-soft">{tag}</span>
         </div>
-        {l.workshop && <div className="ld-tags"><span className="ld-ws" title="Workshop">{l.workshop}</span></div>}
+        {(l.workshop || f.custom) && <div className="ld-tags">{l.workshop && <span className="ld-ws" title="Workshop">{l.workshop}</span>}{f.custom && <span className="ld-ws" title="A date and time was chosen during the last call">📅 Planned by you</span>}</div>}
         {cb && f.note && <div className="ld-note">“{f.note}”</div>}
         {!cb && last && <div className="ld-last ld-clip" title={last}>{last}</div>}
         <div className="ld-actions ld-actions-3">{call}{chat}{upd}</div>
@@ -70,6 +70,7 @@ function TaskCard({ x, cb, calm, delayed, now, cfg, openLead, setModal }) {
       <div className="ld-tags">
         <Pill s={tone}>{cb ? "Callback " + fmt(f.callbackAt) : `${step} · ${s === "over" ? "overdue " + delay(f, now) : "due " + fmt(f.planned)}`}</Pill>
         {l.workshop && <span className="ld-ws" title="Workshop">{l.workshop}</span>}
+        {f.custom && <span className="ld-ws" title="A date and time was chosen during the last call">📅 Planned</span>}
         <span className={"ld-who-tag" + (owner === "Unassigned" ? " none" : "")} title="Assigned to"><UserIco />{owner}</span>
       </div>
       {(detail || (cb && f.note)) && <div className="ld-small ld-clip">{detail}{cb && f.note ? (detail ? " · " : "") + "📝 " + f.note : ""}</div>}

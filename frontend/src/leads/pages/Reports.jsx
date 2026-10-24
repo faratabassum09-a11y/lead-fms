@@ -4,13 +4,13 @@ import PageLoader from "../../components/PageLoader.jsx";
 import { api } from "../../api.js";
 import { useLeads } from "../LeadsContext.jsx";
 import { downloadCsv, pc } from "../leadUtils.js";
-import { Stats, Bar, Panel, Empty } from "../ui.jsx";
+import { Stats, Bar, Panel, Empty, ResetNote } from "../ui.jsx";
 
 const lab = (k) => new Date(k + "-01").toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
 
 // Business status over time: this month / 3 / 6 / 12 months / all time.
 export default function Reports() {
-  const { admin, toast } = useLeads();
+  const { admin, toast, cfg } = useLeads();
   const [m, setM] = useState(6), [r, setR] = useState(null);
   useEffect(() => { setR(null); api.ldReports(m).then(setR).catch((e) => toast(e.message, "bad")); }, [m]);
   const S = (k) => (r ? r.months.reduce((s, x) => s + x[k], 0) : 0);
@@ -20,6 +20,7 @@ export default function Reports() {
     <div className="page">
       <PageHeader title={admin ? "Reports" : "My Reports"} subtitle="Every lead, call and note is stored permanently — look back as far as you like"
         meta={r && <button type="button" className="ld-btn" onClick={() => downloadCsv("lead-report.csv", [["Month", "Leads", "Contacted", "Connected", "Day1", "Day2", "Calls"], ...r.months.map((x) => [x.month, x.leads, x.contacted, x.connected, x.day1, x.day2, x.calls]), [], ["Workshop", "Leads", "Contacted", "Connected", "Day1", "Day2", "Calls"], ...(r.workshops || []).map((x) => [x.workshop, x.leads, x.contacted, x.connected, x.day1, x.day2, x.calls])])}>⬇ Export CSV</button>} />
+      <ResetNote at={cfg?.statsResetAt} />
       <div className="range-pills" role="tablist" aria-label="Report period">
         {[[1, "This month"], [3, "Last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "All time"]].map(([v, t]) => (
           <button key={v} type="button" role="tab" aria-selected={m === v} className={"range-pill" + (m === v ? " range-pill-active" : "")} onClick={() => setM(v)}>{t}</button>

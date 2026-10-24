@@ -27,11 +27,12 @@ const loadLead = async (id) => {
 // ---------- settings ----------
 router.get("/config", wrap(async (req, res) => {
   const c = await S.getCfg();
-  res.json(req.lu.leadAdmin ? { ...c, lastSync: await S.lastSync() } : { statuses: c.statuses, plan: c.plan, attPlan: c.attPlan, waTemplate: c.waTemplate });
+  res.json(req.lu.leadAdmin ? { ...c, lastSync: await S.lastSync() } : { statuses: c.statuses, plan: c.plan, attPlan: c.attPlan, waTemplate: c.waTemplate, closeStatuses: c.closeStatuses, statsResetAt: c.statsResetAt || "" });
 }));
 router.put("/config", adminOnly, wrap(async (req, res) => {
   const b = req.body || {}, applyToExisting = b.applyToExisting !== false;
   delete b.lastSync; delete b.applyToExisting; delete b.share; // the daily share has its own endpoint
+  delete b.statsResetAt; // only POST /reset-stats changes this
   const prev = await S.getCfg(), next = { ...prev, ...b };
   next.plan = S.cleanPlan(next.plan, "Lead follow-ups");
   next.attPlan = S.cleanPlan(next.attPlan, "Attendee follow-ups");
@@ -54,6 +55,8 @@ router.get("/stats", wrap(async (req, res) => res.json(await S.stats(req.lu))));
 // admin scorecard: tasks due / on time / late / missed per person for a date range (?from=YYYY-MM-DD&to=YYYY-MM-DD)
 router.get("/performance", adminOnly, wrap(async (req, res) => res.json(await S.performance(String(req.query.from || ""), String(req.query.to || "")))));
 router.post("/clear-delayed", adminOnly, wrap(async (_req, res) => res.json(await S.clearDelayed())));
+// fresh start for Daily Board / Team Performance / Reports / Dashboard: they count only from now on (nothing is deleted)
+router.post("/reset-stats", adminOnly, wrap(async (req, res) => res.json(await S.resetStats({ restore: !!req.body?.restore, closeOverdue: !!req.body?.closeOverdue }))));
 router.get("/progress", wrap(async (_req, res) => res.json(await S.progress())));
 // "Share out again" in Settings -> Automatic assignment
 router.get("/share", adminOnly, wrap(async (_req, res) => res.json(await S.getShare())));
@@ -168,6 +171,26 @@ router.patch("/leads/:id/fu/:n", wrap(async (req, res) => {
       if (d < nx.planned) nx.planned = d;
     }
   }
+  // NEXT PLANNED DATE + TIME: the caller picked when the next follow-up should happen -> that follow-up moves to exactly that
+  // moment, so it shows up in its own column (FU2 after FU1, ...) on that date: Today Follow-ups that day, Delayed after it.
+  // A date the caller chose always beats the plan and the auto-retry above. Not used when the status closes the lead.
+  if (b.nextPlanned && f.status && !cfg.closeStatuses.includes(f.status)) {
+    const when = new Date(b.nextPlanned);
+    if (Number.isNaN(+when)) throw fail("The next planned date / time is not valid");
+    if (!nx) throw fail("This is the last follow-up in the plan, so there is no next follow-up to schedule");
+    if (!nx.actual) {
+      if (+when < Date.now() - 6e4) throw fail("Pick a next planned date and time in the future");
+      nx.planned = when; nx.custom = true; nx.skipped = false;
+      let at = when; // anything planned after it must not come before it
+      for (const x of arr.slice(n + 1)) {
+        if (x.actual || x.skipped) continue;
+        if (new Date(x.planned) <= at) x.planned = S.adj(new Date(+at + 864e5), cfg);
+        at = new Date(x.planned);
+      }
+      const label = (set === "d1Fus" ? "Day 1 " : set === "d2Fus" ? "Day 2 " : "") + "FU" + (n + 1);
+      S.trail(l, "schedule", `${label} planned for ${when.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit", hour12: true })} (set by ${req.user.name})`, req.user.name);
+    }
+  }
   l.markModified(set);
   await l.save();
   if (b.status) await S.logAct(l, n, f, req.user.email, set);
@@ -208,7 +231,7 @@ router.get("/activity", wrap(async (req, res) =>
 router.get("/today", adminOnly, wrap(async (_req, res) => res.json(await S.board())));
 router.post("/snapshot", adminOnly, wrap(async (_req, res) => { await S.snapshot(); res.json({ ok: 1 }); }));
 router.get("/daily", adminOnly, wrap(async (req, res) =>
-  res.json(await LeadSnapshot.find().sort({ date: -1 }).limit(Math.min(+req.query.days || 30, 366)).lean())));
+  res.json(await LeadSnapshot.find(await S.snapshotFilter()).sort({ date: -1 }).limit(Math.min(+req.query.days || 30, 366)).lean())));
 router.get("/reports", wrap(async (req, res) => res.json(await S.reports(req.lu, +req.query.months || 0))));
 
 // ---------- team (admin) ----------

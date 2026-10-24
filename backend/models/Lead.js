@@ -7,7 +7,7 @@ const { Schema } = mongoose;
 
 // One follow-up call: planned time, when it was actually done, the outcome, a note.
 const Fu = new Schema(
-  { skipped: Boolean, planned: Date, actual: Date, status: String, note: String, callbackAt: Date },
+  { skipped: Boolean, planned: Date, actual: Date, status: String, note: String, callbackAt: Date, custom: Boolean }, // custom: the caller picked this follow-up's date/time ("Next planned date/time") instead of the Settings plan
   { _id: false }
 );
 

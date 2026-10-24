@@ -4,11 +4,11 @@ import PageLoader from "../../components/PageLoader.jsx";
 import { usePolling } from "../../hooks/usePolling.js";
 import { api } from "../../api.js";
 import { useLeads } from "../LeadsContext.jsx";
-import { Stats, Panel, Empty } from "../ui.jsx";
+import { Stats, Panel, Empty, ResetNote } from "../ui.jsx";
 
 // Admin landing page: who is working on what today, escalations, and the nightly history.
 export default function Board() {
-  const { toast } = useLeads();
+  const { toast, cfg } = useLeads();
   const [d, setD] = useState(null), [h, setH] = useState([]);
   const load = () => { api.ldToday().then(setD).catch((e) => toast(e.message, "bad")); api.ldDaily(14).then(setH).catch(() => {}); };
   useEffect(load, []);
@@ -18,6 +18,7 @@ export default function Board() {
   return (
     <div className="page">
       <PageHeader title="Daily Board" subtitle="Live per-caller work for today, escalations, and the saved daily history" />
+      <ResetNote at={cfg?.statsResetAt} />
       <Stats items={[["New leads today", d.newToday, "accent"], ["Unassigned", d.unassigned, d.unassigned ? "neutral" : ""], ["Tasks due today", T("due")], ["Done today", T("done"), "good"], ["Overdue", T("overdue"), T("overdue") ? "bad" : ""], ["Escalated", T("escalated"), T("escalated") ? "bad" : ""]]} />
 
       <div className="ld-grid2">

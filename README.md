@@ -83,6 +83,17 @@ npm run seed -- --reset   # re-import only the leads that came from the import
    (failed write-backs retry every 5 minutes; what a caller typed is never overwritten by an older sheet value).
 4. Admins use the **Daily Board**, **Reports** (CSV export), bulk re-assign, attendance and Settings.
 
+### Next planned date & time (Update status)
+In **Update status**, after choosing the outcome, a caller can set **Next planned date** and **Next planned time**. The *next* follow-up
+(FU2 after FU1, FU3 after FU2, Day 1 / Day 2 steps too) moves to exactly that moment, so it appears in its own column on that date
+(Today Follow-ups that day, Delayed after it) with a 📅 tag. Later follow-ups are pushed back if they would fall before it. Leave the date
+empty to keep the normal schedule. Not offered for Not interested / Wrong number (they close the lead) or on the last follow-up of the plan.
+
+### Reset reports & dashboards (Settings)
+**Settings → Reset reports & dashboards** starts the Daily Board, Team Performance, Reports and Dashboard from zero. Nothing is deleted:
+they just count from the reset moment, and **Restore old numbers** brings everything back. Optional tick: also close all overdue calls.
+API: `POST /reset-stats` `{ restore?, closeOverdue? }` (admin).
+
 ### Workshops
 Type the workshop in the sheet's **Workshop Name** column. The first time a new name appears, a filter chip for it shows up on
 Today / Delayed / Attendee Follow-ups, Leads, Attendance and Dashboard (and in the Daily Reports "By workshop" table). The

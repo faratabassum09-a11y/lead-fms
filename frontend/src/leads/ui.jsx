@@ -37,6 +37,8 @@ export const Panel = ({ title, actions, children, className = "" }) => (
 );
 
 export const Pill = ({ s, children }) => <span className={"ld-pill ld-pill-" + s}>{children}</span>;
+// shown on Daily Board / Team Performance / Reports / Dashboard after an admin pressed "Reset" in Settings
+export const ResetNote = ({ at }) => at ? <div className="ld-reset-note">🔄 Fresh start — these numbers count only from {new Date(at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })} onwards. Older history is kept safe.</div> : null;
 export const Empty = ({ children }) => <div className="ld-empty">{children}</div>;
 
 // "Update status" dialog: pick the outcome, add a note, schedule a callback.
@@ -50,12 +52,20 @@ export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
   const [profession, setProfession] = useState(l.profession || "");
   const [city, setCity] = useState(l.city || "");
   const [saving, setSaving] = useState(false);
+  // Next planned date + time: moves the NEXT follow-up (FU2 after FU1, ...) to that moment so it shows up in its own column that day
+  const nxt = (l[set] || [])[n], canNext = !!nxt && !nxt.actual;
+  const [nd, setNd] = useState(nxt?.custom && nxt.planned ? toLocalInput(nxt.planned).slice(0, 10) : "");
+  const [nt, setNt] = useState(nxt?.planned ? toLocalInput(nxt.planned).slice(11) : "11:00");
+  const closes = (cfg.closeStatuses || []).includes(status); // Not interested / Wrong number: nothing more to plan
+  const todayStr = toLocalInput(new Date()).slice(0, 10);
+  const nextAt = canNext && !closes && nd ? new Date(`${nd}T${nt || "11:00"}`) : null;
+  const nextBad = !!nextAt && (Number.isNaN(+nextAt) || +nextAt < Date.now() - 6e4);
   const professions = [...new Set(leads.map((x) => (x.profession || "").trim()).filter((v) => v && !/^(n\/?a|na)$/i.test(v)))].slice(0, 400);
   const history = (l[set] || []).map((x, i) => ({ x, i })).filter(({ x }) => x.note);
   // browser-local time -> absolute time, so the server never has to guess the zone
   const submit = async () => {
     setSaving(true);
-    try { await onSave({ status, note, level, profession, city, callbackAt: status === "Callback" && cb ? new Date(cb).toISOString() : "" }); }
+    try { await onSave({ status, note, level, profession, city, callbackAt: status === "Callback" && cb ? new Date(cb).toISOString() : "", nextPlanned: nextAt && !nextBad ? nextAt.toISOString() : "" }); }
     finally { setSaving(false); }
   };
   return (
@@ -79,6 +89,21 @@ export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
         {status === "Callback" && (
           <label className="modal-field">Call back at<input type="datetime-local" value={cb} onChange={(e) => setCb(e.target.value)} /></label>
         )}
+        {status && !closes && (
+          <div className="ld-next">
+            <div className="card-label">Next planned follow-up <span className="ld-small">({`${set === "d1Fus" ? "Day 1 " : set === "d2Fus" ? "Day 2 " : ""}FU${n + 1}`})</span></div>
+            <div className="ld-duo">
+              <label className="modal-field">Next planned date<input type="date" min={todayStr} value={nd} disabled={!canNext} onChange={(e) => setNd(e.target.value)} /></label>
+              <label className="modal-field">Next planned time<input type="time" value={nt} disabled={!canNext} onChange={(e) => setNt(e.target.value)} /></label>
+            </div>
+            <p className={"ld-small" + (nextBad ? " ld-bad" : "")} style={{ margin: "2px 0 10px" }}>
+              {!canNext ? (nxt ? "The next follow-up is already done." : "This is the last follow-up in the plan — there is no next one to schedule.")
+                : nextBad ? "Pick a date and time in the future."
+                : nextAt ? `It will show under ${set === "d1Fus" ? "Day 1 " : set === "d2Fus" ? "Day 2 " : ""}FU${n + 1} on ${nextAt.toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}.`
+                : "Optional. Leave the date empty to keep the normal schedule."}
+            </p>
+          </div>
+        )}
         <div className="card-label">About this person <span className="ld-small">(saved to the sheet)</span></div>
         <div className="ld-trio">
           <label className="modal-field">Level
@@ -98,7 +123,7 @@ export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
         )}
         <div className="modal-actions">
           <button type="button" className="ld-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="ld-btn ld-btn-solid" disabled={!status || saving} onClick={submit}>{saving ? "Saving…" : "Save update"}</button>
+          <button type="button" className="ld-btn ld-btn-solid" disabled={!status || saving || nextBad} onClick={submit}>{saving ? "Saving…" : "Save update"}</button>
         </div>
       </div>
     </div>

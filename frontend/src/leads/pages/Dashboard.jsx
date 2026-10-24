@@ -3,14 +3,17 @@ import PageHeader from "../../components/PageHeader.jsx";
 import PageLoader from "../../components/PageLoader.jsx";
 import { useLeads } from "../LeadsContext.jsx";
 import { pc } from "../leadUtils.js";
-import { Stats, Bar, Panel, Empty } from "../ui.jsx";
+import { Stats, Bar, Panel, Empty, ResetNote } from "../ui.jsx";
 import WorkshopBar from "../WorkshopBar.jsx";
 
 // Conversion funnel, 7-day trend, caller performance and call outcomes.
 export default function Dashboard() {
-  const { lqLeads: allLeads, loaded, now, admin, inWs } = useLeads();
+  const { lqLeads: everyLead, loaded, now, admin, inWs, cfg } = useLeads();
   const [range, setRange] = useState("all");
   if (!loaded) return <PageLoader />;
+  // after "Reset" in Settings only leads that came in since then are counted
+  const since = cfg?.statsResetAt ? new Date(cfg.statsResetAt) : null;
+  const allLeads = since ? everyLead.filter((l) => new Date(l.ts) >= since) : everyLead;
   const leads = allLeads.filter(inWs);
   const L = leads.filter((l) => range === "all" || (range === "today" ? new Date(l.ts).toDateString() === now.toDateString() : now - new Date(l.ts) < 7 * 864e5));
   const all = L.flatMap((l) => l.fus.map((f, i) => ({ f, i, l })));
@@ -44,6 +47,7 @@ export default function Dashboard() {
     <div className="page">
       <PageHeader title="Dashboard" subtitle={admin ? "Funnel, caller performance and call outcomes across all leads" : "Your funnel and call outcomes"}
         meta={<select className="ld-select" value={range} onChange={(e) => setRange(e.target.value)} aria-label="Date range"><option value="all">All time</option><option value="today">Today's leads</option><option value="7d">Last 7 days</option></select>} />
+      <ResetNote at={cfg?.statsResetAt} />
       <WorkshopBar items={allLeads} />
       <Stats items={[["Leads", L.length, "accent"], ["Connect rate", pc(conn, L.length), "good"], ["Follow-ups done", done], ...(admin ? [["Overdue", over, over ? "bad" : ""]] : []), ["Day 1 → Day 2", `${d1} → ${d2}`]]} />
       <div className="ld-grid2">

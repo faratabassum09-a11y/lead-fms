@@ -108,6 +108,7 @@ export const api = {
   ldReports: (months) => request(`/reports?months=${months}`),
   ldCallers: () => request("/callers"),
   ldClearDelayed: () => request("/clear-delayed", { method: "POST" }),
+  ldResetStats: (data) => request("/reset-stats", { method: "POST", body: JSON.stringify(data || {}) }),
   ldProgress: () => request("/progress"),
   ldPerformance: (from, to) => request(`/performance?from=${from}&to=${to}`),
   ldHistory: (id) => request(`/leads/${id}/history`),

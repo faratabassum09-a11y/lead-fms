@@ -4,6 +4,7 @@ import PageLoader from "../../components/PageLoader.jsx";
 import { api } from "../../api.js";
 import { avatarStyleFromString, initials } from "../../utils/colorFromString.js";
 import { useLeads } from "../LeadsContext.jsx";
+import { ResetNote } from "../ui.jsx";
 
 // ---- India-time calendar helpers (the follow-up plan is in IST; the browser may not be) ----
 const IST = 330 * 60000;
@@ -54,6 +55,7 @@ export default function Performance() {
   return (
     <div className="page">
       <PageHeader title="Team Performance" subtitle="How the team is doing: first, whether calls are done on time, then the work volume" />
+      <ResetNote at={d?.resetAt} />
       <div className="pf-bar">
         {PRESETS.map(([k, label, fn]) => <button key={k} type="button" className={"pf-pill" + (preset === k ? " on" : "")} onClick={() => pick(k, fn)}>{label}</button>)}
         <span className="pf-dates">From <input type="date" value={range?.[0] || ""} max={d?.today} onChange={(e) => custom(0, e.target.value)} />

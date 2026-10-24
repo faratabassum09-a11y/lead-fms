@@ -25,6 +25,7 @@ const monthKey = (d) => L(d).toISOString().slice(0, 7);
 // Settings (one document)
 // ---------------------------------------------------------------------------
 export const DEF = {
+  statsResetAt: "", // "Reset reports": Daily Board / Team Performance / Reports / Dashboard count only from this moment (nothing is deleted)
   intakeSheet: "", // legacy: public CSV link of the sheet (read-only)
   sheetUrl: "", sheetToken: "", // Google Apps Script web-app link + secret: reads the private sheet AND writes Level / Profession / City back
   workStart: "09:00", workEnd: "19:00", skipSunday: true,
@@ -53,6 +54,31 @@ export const getCfg = async () => {
   return cfg;
 };
 export const setCfg = (v) => LeadConfig.findByIdAndUpdate("main", { v }, { upsert: true });
+
+// ---------------------------------------------------------------------------
+// Reset of the reporting pages. We never delete leads or calls — we remember WHEN the reset happened and the
+// Daily Board, Team Performance, Reports and Dashboard simply start counting from there. "Restore" puts all history back.
+// ---------------------------------------------------------------------------
+const resetFloor = (cfg) => (cfg?.statsResetAt ? new Date(cfg.statsResetAt) : null);
+const later = (a, b) => (b && +b > +a ? b : a);
+export async function resetStats({ restore = false, closeOverdue = false } = {}) {
+  if (restore) {
+    await LeadConfig.findByIdAndUpdate("main", { $set: { "v.statsResetAt": "" } }, { upsert: true });
+    bustProgress();
+    return { statsResetAt: "" };
+  }
+  const at = new Date();
+  await LeadConfig.findByIdAndUpdate("main", { $set: { "v.statsResetAt": at.toISOString() } }, { upsert: true });
+  await LeadSnapshot.deleteOne({ date: dateKey(at) }); // today's saved board still holds the old numbers
+  const closed = closeOverdue ? (await clearDelayed()).leads : 0; // optional: also empty the Overdue / Escalated counters
+  bustProgress();
+  return { statsResetAt: at.toISOString(), closed };
+}
+// the nightly Daily-history rows from the reset day onward
+export async function snapshotFilter() {
+  const at = resetFloor(await getCfg());
+  return at ? { date: { $gte: dateKey(at) } } : {};
+}
 
 // ---------------------------------------------------------------------------
 // Who sees what
@@ -472,7 +498,7 @@ export const logAct = (l, step, f, by, set) =>
 // Daily Board, snapshot, reports
 // ---------------------------------------------------------------------------
 export async function board() {
-  const cfg = await getCfg(), now = new Date(), sod = startOfDay(now), eod = endOfDay(now);
+  const cfg = await getCfg(), now = new Date(), eod = endOfDay(now), sod = later(startOfDay(now), resetFloor(cfg)); // after a reset, "today" counts from the reset
   const leads = await Lead.find().select("-trail").lean(), acts = await LeadActivity.find({ at: { $gte: sod } }).lean(), R = {}, esc = [];
   let newToday = 0;
   const r = (k) => (R[k || "Unassigned"] ||= { caller: k || "Unassigned", leads: 0, due: 0, done: 0, overdue: 0, escalated: 0, callbacks: 0 });
@@ -498,6 +524,7 @@ export const snapshot = async () => LeadSnapshot.updateOne({ date: dateKey(new D
 export async function reports(user, months) {
   let from = new Date(0);
   if (months > 0) { const l = L(new Date()); l.setUTCMonth(l.getUTCMonth() - months + 1, 1); l.setUTCHours(0, 0, 0, 0); from = U(l); }
+  from = later(from, resetFloor(await getCfg())); // nothing from before a reset
   const leads = await Lead.find({ ...mineFilter(user), ts: { $gte: from } }).select("-trail").lean();
   const acts = await LeadActivity.find({ at: { $gte: from }, ...(user.leadAdmin ? {} : { caller: nameRe(user) }) }).lean();
   const M = {}, C = {}, O = {}, W = {}, wsOf = new Map(leads.map((l) => [l.key, l.workshop || "No workshop"]));
@@ -645,11 +672,12 @@ export async function performance(fromYmd, toYmd) {
   if (!ok(toYmd)) toYmd = fromYmd;
   if (toYmd < fromYmd) [fromYmd, toYmd] = [toYmd, fromYmd];
   const cfg = await getCfg(), now = new Date(), users = await User.find({ active: { $ne: false } }).lean();
-  const from = dayStart(fromYmd), to = endOfDay(dayStart(toYmd));
-  const span = Math.round((+to - +from + 1) / 864e5);
-  const prevFrom = new Date(+from - span * 864e5), prevTo = new Date(+from - 1);
+  const reset = resetFloor(cfg), pickedFrom = dayStart(fromYmd), to = endOfDay(dayStart(toYmd));
+  const span = Math.round((+to - +pickedFrom + 1) / 864e5);
+  const from = later(pickedFrom, reset); // tasks planned before a reset are not counted
+  const prevFrom = later(new Date(+pickedFrom - span * 864e5), reset), prevTo = new Date(+pickedFrom - 1);
   const [cur, prev] = await Promise.all([perfRange(from, to, cfg, users, now), perfRange(prevFrom, prevTo, cfg, users, now)]);
-  return { from: fromYmd, to: toYmd, today, inProgress: to >= now, at: now, graceMin: GRACE / 60000, ...cur, prev: prev.team };
+  return { from: fromYmd, to: toYmd, today, inProgress: to >= now, at: now, graceMin: GRACE / 60000, resetAt: reset ? reset.toISOString() : "", ...cur, prev: prev.team };
 }
 
 

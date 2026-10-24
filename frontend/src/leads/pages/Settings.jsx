@@ -29,6 +29,17 @@ function Form({ cfg, load, sync, toast, leads }) {
     catch (e) { toast(e.message, "bad"); }
     setClearing(false);
   };
+  const [resetting, setResetting] = useState(false), [closeOverdue, setCloseOverdue] = useState(false);
+  const resetStats = async (restore) => {
+    const ask = restore
+      ? "Bring back ALL the old numbers on the Daily Board, Team Performance, Reports and Dashboard?"
+      : "Reset the Daily Board, Team Performance, Reports and Dashboard?\n\nThey will start from zero right now. No leads or call history are deleted — you can restore the old numbers anytime." + (closeOverdue ? "\n\nAll overdue calls will also be closed (cannot be undone)." : "");
+    if (!window.confirm(ask)) return;
+    setResetting(true);
+    try { await api.ldResetStats({ restore, closeOverdue: !restore && closeOverdue }); await load(); toast(restore ? "Old numbers are back" : "Fresh start — all reports now count from this moment", "good"); }
+    catch (e) { toast(e.message, "bad"); }
+    setResetting(false);
+  };
   const loadLog = useCallback(() => api.ldImportLog().then(setLog).catch(() => setLog([])), []);
   useEffect(() => { loadLog(); }, [loadLog]);
   // every "import" click ends with the log refreshed — also when the import failed (that is logged too)
@@ -126,6 +137,16 @@ function Form({ cfg, load, sync, toast, leads }) {
       <Panel title="🧹 Fresh start">
         <p className="ld-small" style={{ marginTop: 0 }}>Closes every call that was planned before today and is still not done, so nothing is left over as "delayed". Each lead's next call (today or later) still comes up as normal. This cannot be undone.</p>
         <button type="button" className="ld-btn ld-btn-remove" disabled={clearing} onClick={clearOld}>{clearing ? "Clearing…" : "Clear all old pending calls"}</button>
+      </Panel>
+
+      <Panel title="🔄 Reset reports & dashboards">
+        <p className="ld-small" style={{ marginTop: 0 }}>Starts the <b>Daily Board</b>, <b>Team Performance</b>, <b>Reports</b> and <b>Dashboard</b> from zero. They count only what happens from the moment you press the button. Leads, notes and call history are <b>not deleted</b>, and you can restore the old numbers anytime.</p>
+        {cfg.statsResetAt && <p className="ld-small">Currently counting from <b>{fmt(cfg.statsResetAt)}</b>.</p>}
+        <Check checked={closeOverdue} onChange={setCloseOverdue}>Also close all overdue calls, so Overdue / Escalated start at 0 too (cannot be undone)</Check>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <button type="button" className="ld-btn ld-btn-remove" disabled={resetting} onClick={() => resetStats(false)}>{resetting ? "Working…" : "Reset all reports now"}</button>
+          {cfg.statsResetAt && <button type="button" className="ld-btn" disabled={resetting} onClick={() => resetStats(true)}>Restore old numbers</button>}
+        </div>
       </Panel>
 
       <Panel title="📜 Import log">
