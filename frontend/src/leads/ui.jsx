@@ -89,7 +89,7 @@ export function UpdateModal({ m, cfg, leads, admin, onSave, onClose }) {
         {status === "Callback" && (
           <label className="modal-field">Call back at<input type="datetime-local" value={cb} onChange={(e) => setCb(e.target.value)} /></label>
         )}
-        {status && !closes && (
+        {!closes && (
           <div className="ld-next">
             <div className="card-label">Next planned follow-up <span className="ld-small">({`${set === "d1Fus" ? "Day 1 " : set === "d2Fus" ? "Day 2 " : ""}FU${n + 1}`})</span></div>
             <div className="ld-duo">
